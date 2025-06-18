@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import apiService from '../services/apiService';
+import notificationService from '../services/notificationService';
 
 export const useArbitrageData = () => {
   console.log('🎯 ===== HOOK useArbitrageData CONSTRUÍDO =====');
@@ -27,6 +28,17 @@ export const useArbitrageData = () => {
   // Refs para evitar memory leaks
   const mountedRef = useRef(true);
   const cleanupFunctions = useRef([]);
+  const lastOpportunityCount = useRef(0);
+
+  // ============ Inicializar notificações ============
+  useEffect(() => {
+    const initNotifications = async () => {
+      console.log('🔔 Inicializando serviço de notificações...');
+      await notificationService.initialize();
+    };
+    
+    initNotifications();
+  }, []);
 
   // ============ Funções auxiliares ============
   const updateLastUpdate = useCallback(() => {
@@ -297,9 +309,25 @@ export const useArbitrageData = () => {
     const unsubscribeOpportunities = apiService.addEventListener('opportunities_update', (data) => {
       console.log(`🔄 Atualização de oportunidades: ${data.opportunities?.length || 0} encontradas`);
       if (mountedRef.current) {
-        setOpportunities(data.opportunities || []);
+        const newOpportunities = data.opportunities || [];
+        setOpportunities(newOpportunities);
         updateLastUpdate();
         clearError();
+        
+        // Notificar sobre novas oportunidades
+        if (newOpportunities.length > lastOpportunityCount.current) {
+          const newOpportunitiesCount = newOpportunities.length - lastOpportunityCount.current;
+          console.log(`🔔 ${newOpportunitiesCount} nova(s) oportunidade(s) detectada(s)`);
+          
+          // Mostrar notificação para cada nova oportunidade lucrativa
+          newOpportunities.forEach(opportunity => {
+            if (opportunity.expectedProfit > 0.5) { // Apenas oportunidades > 0.5%
+              notificationService.showOpportunityAlert(opportunity);
+            }
+          });
+        }
+        
+        lastOpportunityCount.current = newOpportunities.length;
       }
     });
 
@@ -317,6 +345,14 @@ export const useArbitrageData = () => {
           timestamp: data.timestamp
         }));
         updateLastUpdate();
+        
+        // Notificar sobre mudanças significativas no mercado
+        if (data.totalPairs > 0) {
+          notificationService.showMarketUpdate({
+            totalOpportunities: data.totalOpportunities || 0,
+            totalPairs: data.totalPairs
+          });
+        }
       }
     });
 
@@ -330,6 +366,11 @@ export const useArbitrageData = () => {
           timestamp: new Date().toISOString()
         }));
         updateLastUpdate();
+        
+        // Notificar sobre problemas do sistema
+        if (!data.isRunning) {
+          notificationService.showSystemAlert('Sistema parou de funcionar', 'error');
+        }
       }
     });
 
@@ -338,6 +379,9 @@ export const useArbitrageData = () => {
       console.error('❌ Erro de análise do servidor:', data.error);
       if (mountedRef.current) {
         handleError(new Error(data.error), 'análise do servidor');
+        
+        // Notificar sobre erros
+        notificationService.showSystemAlert(`Erro de análise: ${data.error}`, 'error');
       }
     });
 

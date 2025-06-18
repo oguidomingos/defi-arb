@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Bug, RefreshCw, CheckCircle, XCircle, AlertTriangle, Play } from 'lucide-react';
+import { Bug, RefreshCw, CheckCircle, XCircle, AlertTriangle, Play, Bell } from 'lucide-react';
 import apiService from '../services/apiService';
+import notificationService from '../services/notificationService';
 
 const DebugPanel = ({ 
   opportunities, 
@@ -16,6 +17,7 @@ const DebugPanel = ({
   const [testResults, setTestResults] = useState({});
   const [isRunning, setIsRunning] = useState(false);
   const [lastTest, setLastTest] = useState(null);
+  const [notificationStatus, setNotificationStatus] = useState(null);
 
   const runTests = async () => {
     setIsRunning(true);
@@ -146,9 +148,26 @@ const DebugPanel = ({
     console.log('🎯 Testes concluídos!');
   };
 
+  const testNotification = async () => {
+    console.log('🔔 Testando notificação...');
+    const success = await notificationService.testNotification();
+    if (success) {
+      console.log('✅ Notificação de teste enviada');
+    } else {
+      console.log('❌ Falha ao enviar notificação');
+    }
+  };
+
+  const checkNotificationStatus = () => {
+    const status = notificationService.getStatus();
+    setNotificationStatus(status);
+    console.log('📊 Status das notificações:', status);
+  };
+
   useEffect(() => {
     // Executar testes automaticamente ao montar o componente
     runTests();
+    checkNotificationStatus();
   }, []);
 
   const getTestIcon = (success) => {
@@ -184,23 +203,48 @@ const DebugPanel = ({
         </h2>
         
         <div className="flex items-center space-x-2">
-          <button
-            onClick={runTests}
-            disabled={isRunning}
-            className="btn-primary flex items-center space-x-2"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRunning ? 'animate-spin' : ''}`} />
-            <span>{isRunning ? 'Testando...' : 'Executar Testes'}</span>
-          </button>
-          
-          <button
-            onClick={refresh}
-            disabled={isLoading}
-            className="btn-secondary flex items-center space-x-2"
-          >
-            <Play className="w-4 h-4" />
-            <span>{isLoading ? 'Carregando...' : 'Forçar Refresh'}</span>
-          </button>
+          <div className="flex gap-2 mb-4">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={runTests}
+              disabled={isRunning}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Play size={16} />
+              {isRunning ? 'Testando...' : 'Executar Testes'}
+            </motion.button>
+            
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={refresh}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              <RefreshCw size={16} />
+              Recarregar
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={testNotification}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+            >
+              <Bell size={16} />
+              Testar Notificação
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={checkNotificationStatus}
+              className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+            >
+              <Bell size={16} />
+              Status Notificações
+            </motion.button>
+          </div>
         </div>
       </div>
 
@@ -327,6 +371,46 @@ const DebugPanel = ({
           </div>
         </div>
       </div>
+
+      {/* Status das Notificações */}
+      {notificationStatus && (
+        <div className="bg-gray-50 p-4 rounded-lg mb-4">
+          <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+            <Bell size={20} />
+            Status das Notificações
+          </h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="font-medium">Suportado:</span>
+              <span className={`ml-2 ${notificationStatus.isSupported ? 'text-green-600' : 'text-red-600'}`}>
+                {notificationStatus.isSupported ? '✅ Sim' : '❌ Não'}
+              </span>
+            </div>
+            <div>
+              <span className="font-medium">Permissão:</span>
+              <span className={`ml-2 ${
+                notificationStatus.permission === 'granted' ? 'text-green-600' : 
+                notificationStatus.permission === 'denied' ? 'text-red-600' : 'text-yellow-600'
+              }`}>
+                {notificationStatus.permission === 'granted' ? '✅ Concedida' :
+                 notificationStatus.permission === 'denied' ? '❌ Negada' : '⚠️ Pendente'}
+              </span>
+            </div>
+            <div>
+              <span className="font-medium">Service Worker:</span>
+              <span className={`ml-2 ${notificationStatus.isRegistered ? 'text-green-600' : 'text-red-600'}`}>
+                {notificationStatus.isRegistered ? '✅ Registrado' : '❌ Não registrado'}
+              </span>
+            </div>
+            <div>
+              <span className="font-medium">Pode mostrar:</span>
+              <span className={`ml-2 ${notificationStatus.canShow ? 'text-green-600' : 'text-red-600'}`}>
+                {notificationStatus.canShow ? '✅ Sim' : '❌ Não'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 };
