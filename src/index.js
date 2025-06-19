@@ -71,6 +71,22 @@ class ArbitrageBot {
   async analyzeOpportunities(marketData) {
     try {
       const gasPrice = await this.blockchainService.getGasPrice();
+      
+      // 🔍 DEBUG: Adicionar logs de diagnóstico antes da correção
+      console.log('🔍 [DEBUG] Dados recebidos em analyzeOpportunities:');
+      console.log(`   - Tipo do marketData: ${typeof marketData}`);
+      console.log(`   - Chaves do marketData: ${Object.keys(marketData).join(', ')}`);
+      console.log(`   - Tipo do tokenPrices: ${typeof marketData.tokenPrices}`);
+      console.log(`   - Pares em tokenPrices: ${marketData.tokenPrices ? Object.keys(marketData.tokenPrices).length : 'NULL'}`);
+      
+      // Mostrar exemplo de dados tokenPrices se existir
+      if (marketData.tokenPrices) {
+        const samplePair = Object.keys(marketData.tokenPrices)[0];
+        if (samplePair) {
+          console.log(`   - Exemplo de par (${samplePair}): ${JSON.stringify(marketData.tokenPrices[samplePair])}`);
+        }
+      }
+      
       const analysis = this.arbitrageService.analyzeOpportunities(
         marketData.tokenPrices,
         gasPrice
@@ -170,10 +186,27 @@ class ArbitrageBot {
       const analysis = await this.analyzeOpportunities(marketData);
       if (!analysis) return;
 
-      // Executar melhor oportunidade se houver
+      // MODO MONITORAMENTO: Apenas contar oportunidades, sem executar flash loans
       if (analysis.profitable > 0) {
         this.opportunitiesFound += analysis.profitable;
-        await this.executeBestOpportunity(analysis.opportunities);
+        
+        console.log('📊 MODO MONITORAMENTO ATIVO - Execução de flash loans suspensa');
+        console.log('🔍 Oportunidades detectadas e catalogadas para análise');
+        console.log(`📈 Total de oportunidades encontradas nesta sessão: ${this.opportunitiesFound}\n`);
+        
+        // Log das melhores oportunidades para monitoramento
+        const bestOpp = analysis.opportunities[0];
+        if (bestOpp) {
+          const formatted = this.arbitrageService.formatOpportunity(bestOpp);
+          console.log('🎯 MELHOR OPORTUNIDADE DETECTADA (não executada):');
+          console.log(`   ${formatted.description}`);
+          console.log(`   Lucro estimado: ${formatted.profit}`);
+          console.log(`   Lucro líquido: ${formatted.netProfit}`);
+          console.log(`   Qualidade: ${formatted.quality}`);
+          console.log(`   Score: ${formatted.profitabilityScore}\n`);
+        }
+        
+        // SUSPENSO: await this.executeBestOpportunity(analysis.opportunities);
       }
 
     } catch (error) {
@@ -194,7 +227,9 @@ class ArbitrageBot {
     }
 
     this.isRunning = true;
-    console.log('🔄 Iniciando monitoramento contínuo...\n');
+    console.log('📊 MODO MONITORAMENTO ATIVO');
+    console.log('⚠️  Flash loans suspensos - Apenas detecção de oportunidades');
+    console.log('� Iniciando monitoramento contínuo...\n');
 
     // Executar ciclo inicial
     await this.runCycle();
@@ -228,13 +263,12 @@ class ArbitrageBot {
 
   stop() {
     this.isRunning = false;
-    console.log('\n📊 Estatísticas finais:');
-    console.log(`   Oportunidades encontradas: ${this.opportunitiesFound}`);
-    console.log(`   Execuções tentadas: ${this.executionsAttempted}`);
-    console.log(`   Execuções bem-sucedidas: ${this.executionsSuccessful}`);
-    console.log(`   Taxa de sucesso: ${this.executionsAttempted > 0 ? 
-      ((this.executionsSuccessful / this.executionsAttempted) * 100).toFixed(1) : 0}%`);
-    console.log('✅ Sistema encerrado');
+    console.log('\n📊 Estatísticas finais (MODO MONITORAMENTO):');
+    console.log(`   Oportunidades detectadas: ${this.opportunitiesFound}`);
+    console.log(`   Execuções tentadas: ${this.executionsAttempted} (suspenso)`);
+    console.log(`   Execuções bem-sucedidas: ${this.executionsSuccessful} (suspenso)`);
+    console.log(`   Status: Monitoramento ativo - Flash loans suspensos`);
+    console.log('✅ Sistema de monitoramento encerrado');
   }
 
   // Método para execução única (para testes)

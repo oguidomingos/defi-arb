@@ -26,7 +26,7 @@ class ArbitrageService {
     for (const [pair, dexPrices] of Object.entries(tokenPrices)) {
       const dexes = Object.keys(dexPrices);
       
-      if (dexes.length < 2) continue;
+      if (dexes.length < 2 && !config.arbitrageConfig?.allowSingleDexArbitrage) continue;
 
       // Comparar preços entre todas as combinações de DEXs
       for (let i = 0; i < dexes.length - 1; i++) {
@@ -101,6 +101,20 @@ class ArbitrageService {
   // Detectar arbitragem triangular usando algoritmo Bellman-Ford
   detectTriangularArbitrage(tokenPrices) {
     console.log('🔍 Iniciando detecção de arbitragem triangular avançada...');
+    
+    // Debug: mostrar dados recebidos
+    if (config.arbitrageConfig?.enableDetailedLogging) {
+      console.log(`🔍 Dados recebidos no ArbitrageService:`);
+      console.log(`   - ${Object.keys(tokenPrices).length} pares de tokens recebidos`);
+      console.log(`   - Pares: ${Object.keys(tokenPrices).join(', ')}`);
+      
+      // Mostrar exemplo de dados
+      const samplePair = Object.keys(tokenPrices)[0];
+      if (samplePair) {
+        console.log(`   - Exemplo (${samplePair}): ${JSON.stringify(tokenPrices[samplePair])}`);
+      }
+    }
+    
     const result = this.triangularService.detectOpportunities(tokenPrices);
     
     console.log(`🔍 Debug triangular: ${result.opportunities.length} oportunidades, ${result.rejectedOpportunities.length} rejeitadas`);
@@ -241,8 +255,23 @@ class ArbitrageService {
 
   // Analisar todas as oportunidades
   analyzeOpportunities(tokenPrices, gasPrice) {
-    const directOpportunities = this.detectDirectArbitrage(tokenPrices);
-    const triangularOpportunities = this.detectTriangularArbitrage(tokenPrices);
+    // 🔍 DEBUG: Log detalhado do que está sendo recebido ANTES do processamento
+    console.log('🔍 [DEBUG] ArbitrageService.analyzeOpportunities recebeu:');
+    console.log(`   - Tipo: ${typeof tokenPrices}`);
+    console.log(`   - É Array: ${Array.isArray(tokenPrices)}`);
+    console.log(`   - Chaves: ${Object.keys(tokenPrices || {}).join(', ')}`);
+    
+    // 🚨 CORREÇÃO URGENTE: Verificar se é o objeto completo em vez de tokenPrices
+    let actualTokenPrices = tokenPrices;
+    if (tokenPrices && typeof tokenPrices === 'object' && tokenPrices.tokenPrices) {
+      console.log('🔧 [CORREÇÃO APLICADA] Detectado objeto completo, extraindo tokenPrices!');
+      console.log(`   - tokenPrices.tokenPrices existe: ${!!tokenPrices.tokenPrices}`);
+      console.log(`   - Pares em tokenPrices.tokenPrices: ${tokenPrices.tokenPrices ? Object.keys(tokenPrices.tokenPrices).length : 'NULL'}`);
+      actualTokenPrices = tokenPrices.tokenPrices;
+    }
+    
+    const directOpportunities = this.detectDirectArbitrage(actualTokenPrices);
+    const triangularOpportunities = this.detectTriangularArbitrage(actualTokenPrices);
     
     const allOpportunities = [
       ...directOpportunities,

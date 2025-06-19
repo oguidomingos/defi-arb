@@ -17,7 +17,8 @@ import {
 
 const OpportunityCard = ({ opportunity, index }) => {
   const isProfitable = opportunity.expectedProfit > 0;
-  const profitPercentage = opportunity.profitPercentage || 0;
+  // Corrigir o mapeamento do ROI - usar estimatedProfit ou netProfit do backend
+  const profitPercentage = opportunity.netProfit || opportunity.estimatedProfit || 0;
   
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -29,7 +30,8 @@ const OpportunityCard = ({ opportunity, index }) => {
   };
 
   const formatPercentage = (percent) => {
-    return `${(percent * 100).toFixed(3)}%`;
+    // Se percent já está em percentual (como vem do backend), não multiplicar por 100
+    return `${parseFloat(percent).toFixed(3)}%`;
   };
 
   const getTypeIcon = () => {
@@ -70,7 +72,11 @@ const OpportunityCard = ({ opportunity, index }) => {
             <TrendingDown className="w-4 h-4 text-red-400" />
           )}
           <span className={`text-sm font-bold ${isProfitable ? 'text-green-400' : 'text-red-400'}`}>
-            {formatCurrency(opportunity.expectedProfit)}
+            {/* Calcular valor absoluto do lucro baseado no volume */}
+            {formatCurrency(
+              (opportunity.netProfit || opportunity.estimatedProfit || 0) / 100 *
+              (opportunity.volume || opportunity.amount || 1000)
+            )}
           </span>
         </div>
       </div>
@@ -78,13 +84,39 @@ const OpportunityCard = ({ opportunity, index }) => {
       {/* Token Path */}
       <div className="mb-3">
         <div className="flex items-center space-x-2 text-sm">
-          <span className="font-mono text-blue-300">{opportunity.tokenA || 'TOKEN_A'}</span>
-          <ArrowRight className="w-3 h-3 text-gray-500" />
-          <span className="font-mono text-purple-300">{opportunity.tokenB || 'TOKEN_B'}</span>
-          {opportunity.tokenC && (
+          {opportunity.type === 'DIRECT' ? (
             <>
+              <span className="font-mono text-blue-300">
+                {opportunity.pair ? opportunity.pair.split('/')[0] : (opportunity.tokenA || 'TOKEN_A')}
+              </span>
               <ArrowRight className="w-3 h-3 text-gray-500" />
-              <span className="font-mono text-orange-300">{opportunity.tokenC}</span>
+              <span className="font-mono text-purple-300">
+                {opportunity.pair ? opportunity.pair.split('/')[1] : (opportunity.tokenB || 'TOKEN_B')}
+              </span>
+            </>
+          ) : opportunity.type === 'TRIANGULAR' ? (
+            <>
+              <span className="font-mono text-blue-300">{opportunity.tokens?.[0] || opportunity.tokenA || 'TOKEN_A'}</span>
+              <ArrowRight className="w-3 h-3 text-gray-500" />
+              <span className="font-mono text-purple-300">{opportunity.tokens?.[1] || opportunity.tokenB || 'TOKEN_B'}</span>
+              {(opportunity.tokens?.[2] || opportunity.tokenC) && (
+                <>
+                  <ArrowRight className="w-3 h-3 text-gray-500" />
+                  <span className="font-mono text-orange-300">{opportunity.tokens?.[2] || opportunity.tokenC}</span>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="font-mono text-blue-300">{opportunity.tokenA || 'TOKEN_A'}</span>
+              <ArrowRight className="w-3 h-3 text-gray-500" />
+              <span className="font-mono text-purple-300">{opportunity.tokenB || 'TOKEN_B'}</span>
+              {opportunity.tokenC && (
+                <>
+                  <ArrowRight className="w-3 h-3 text-gray-500" />
+                  <span className="font-mono text-orange-300">{opportunity.tokenC}</span>
+                </>
+              )}
             </>
           )}
         </div>
@@ -94,14 +126,14 @@ const OpportunityCard = ({ opportunity, index }) => {
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div className="bg-gray-800/50 p-2 rounded">
           <div className="text-xs text-gray-400 mb-1">DEX Origem</div>
-          <div className="text-sm font-medium text-white">
-            {opportunity.dexA || opportunity.sourceDex || 'Uniswap'}
+          <div className="text-sm font-medium text-white capitalize">
+            {opportunity.buyDex || opportunity.dexA || opportunity.sourceDex || 'Uniswap'}
           </div>
         </div>
         <div className="bg-gray-800/50 p-2 rounded">
           <div className="text-xs text-gray-400 mb-1">DEX Destino</div>
-          <div className="text-sm font-medium text-white">
-            {opportunity.dexB || opportunity.targetDex || 'QuickSwap'}
+          <div className="text-sm font-medium text-white capitalize">
+            {opportunity.sellDex || opportunity.dexB || opportunity.targetDex || 'QuickSwap'}
           </div>
         </div>
       </div>
@@ -183,16 +215,26 @@ const Monitor = ({ opportunities, isLoading, error, onRefresh }) => {
 
   const filteredAndSortedOpportunities = useMemo(() => {
     let filtered = opportunities.filter(opp => {
-      const matchesSearch = !searchTerm || 
-        opp.tokenA?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        opp.tokenB?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        opp.tokenC?.toLowerCase().includes(searchTerm.toLowerCase());
+      // Extrair tokens para busca baseado no tipo
+      let tokensToSearch = [];
+      if (opp.type === 'DIRECT' && opp.pair) {
+        tokensToSearch = opp.pair.split('/');
+      } else if (opp.type === 'TRIANGULAR' && opp.tokens) {
+        tokensToSearch = opp.tokens;
+      } else {
+        tokensToSearch = [opp.tokenA, opp.tokenB, opp.tokenC].filter(Boolean);
+      }
       
-      const matchesFilter = filterType === 'all' || 
+      const matchesSearch = !searchTerm ||
+        tokensToSearch.some(token =>
+          token && token.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      
+      const matchesFilter = filterType === 'all' ||
         (filterType === 'profitable' && opp.expectedProfit > 0) ||
         (filterType === 'unprofitable' && opp.expectedProfit <= 0) ||
-        (filterType === 'direct' && opp.type === 'direct') ||
-        (filterType === 'triangular' && opp.type === 'triangular');
+        (filterType === 'direct' && (opp.type === 'DIRECT' || opp.type === 'direct')) ||
+        (filterType === 'triangular' && (opp.type === 'TRIANGULAR' || opp.type === 'triangular'));
       
       return matchesSearch && matchesFilter;
     });
@@ -203,7 +245,7 @@ const Monitor = ({ opportunities, isLoading, error, onRefresh }) => {
         case 'profit':
           return (b.expectedProfit || 0) - (a.expectedProfit || 0);
         case 'roi':
-          return (b.profitPercentage || 0) - (a.profitPercentage || 0);
+          return ((b.netProfit || b.estimatedProfit || 0) - (a.netProfit || a.estimatedProfit || 0));
         case 'volume':
           return (b.volume || b.amount || 0) - (a.volume || a.amount || 0);
         case 'timestamp':

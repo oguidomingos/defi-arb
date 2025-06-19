@@ -6,17 +6,57 @@ class BlockchainService {
     this.provider = null;
     this.wallet = null;
     this.flashLoanContract = null;
-    this.initializeProvider();
+    this.initializeProvider().catch(error => {
+      console.error('Erro na inicialização assíncrona:', error);
+    });
   }
 
-  initializeProvider() {
+  async initializeProvider() {
     try {
-      // Usar Alchemy se disponível, senão usar Infura ou RPC público
-      const rpcUrl = config.alchemyPolygonRpcUrl || 
-                    `https://polygon-mainnet.infura.io/v3/${config.infuraProjectId}` ||
-                    config.polygonRpcUrl;
+      // Lista de RPC endpoints para failover
+      const rpcEndpoints = [
+        config.alchemyPolygonRpcUrl,
+        config.infuraProjectId ? `https://polygon-mainnet.infura.io/v3/${config.infuraProjectId}` : null,
+        'https://polygon-rpc.com',
+        'https://rpc-mainnet.matic.network',
+        'https://rpc-mainnet.maticvigil.com',
+        'https://rpc.ankr.com/polygon'
+      ].filter(Boolean);
       
-      this.provider = new ethers.providers.JsonRpcProvider(rpcUrl);
+      console.log('🔌 Tentando conectar aos RPC endpoints da Polygon...');
+      
+      // Tentar cada endpoint até encontrar um que funcione
+      for (const rpcUrl of rpcEndpoints) {
+        try {
+          console.log(`🔄 Testando: ${rpcUrl.substring(0, 50)}...`);
+          
+          const provider = new ethers.providers.JsonRpcProvider(rpcUrl, {
+            name: 'polygon',
+            chainId: 137
+          });
+          
+          // Testar conexão com timeout
+          const networkTest = await Promise.race([
+            provider.getNetwork(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Timeout')), 5000)
+            )
+          ]);
+          
+          if (networkTest.chainId === 137) {
+            this.provider = provider;
+            console.log('✅ Conectado com sucesso ao RPC:', rpcUrl.substring(0, 50) + '...');
+            break;
+          }
+        } catch (error) {
+          console.log(`❌ Falhou: ${error.message}`);
+          continue;
+        }
+      }
+      
+      if (!this.provider) {
+        throw new Error('Nenhum RPC endpoint da Polygon funcionando');
+      }
       
       if (config.privateKey) {
         this.wallet = new ethers.Wallet(config.privateKey, this.provider);
@@ -26,8 +66,13 @@ class BlockchainService {
       }
       
     } catch (error) {
-      console.error('Erro ao inicializar provider:', error);
-      throw error;
+      console.error('❌ Erro ao inicializar provider:', error);
+      // Usar provider padrão como fallback
+      this.provider = new ethers.providers.JsonRpcProvider('https://polygon-rpc.com', {
+        name: 'polygon',
+        chainId: 137
+      });
+      console.log('🔄 Usando provider padrão como fallback');
     }
   }
 

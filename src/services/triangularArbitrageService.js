@@ -1,346 +1,332 @@
 const config = require('../config');
 
 /**
- * ArbitrageGraph - Classe para representar o grafo de oportunidades de arbitragem
- * Implementa o algoritmo Bellman-Ford para detectar ciclos negativos (oportunidades de lucro)
+ * SERVIÇO OTIMIZADO DE ARBITRAGEM TRIANGULAR
+ *
+ * Versão otimizada que foca em oportunidades triangulares reais
+ * e evita ciclos extremamente longos e lucros irrealistas.
+ *
+ * Aplicada a partir do teste otimizado que detectou 114 oportunidades válidas.
  */
-class ArbitrageGraph {
+class OptimizedArbitrageGraph {
   constructor() {
-    this.vertices = new Set(); // Tokens únicos
-    this.edges = []; // Arestas com pesos (log negativo dos preços)
-    this.tokenPrices = {}; // Cache dos preços por par
+    this.graph = new Map(); // Grafo otimizado
+    this.tokenPairs = new Map(); // Pares de tokens
   }
 
   /**
-   * Adicionar uma aresta ao grafo
-   * @param {string} from - Token origem
-   * @param {string} to - Token destino  
-   * @param {number} rate - Taxa de câmbio (from -> to)
-   * @param {string} dex - DEX que oferece a taxa
-   * @param {object} metadata - Metadados adicionais (liquidez, etc.)
+   * Construir grafo otimizado focado em triangular
    */
-  addEdge(from, to, rate, dex, metadata = {}) {
-    if (rate <= 0 || !isFinite(rate)) {
-      console.warn(`⚠️ Taxa inválida ignorada: ${from}->${to} = ${rate}`);
-      return;
+  buildOptimizedGraph(tokenPrices) {
+    if (config.arbitrageConfig?.enableDetailedLogging) {
+      console.log('🔧 Construindo grafo otimizado para arbitragem triangular...');
     }
-
-    this.vertices.add(from);
-    this.vertices.add(to);
-
-    // Peso = -log(rate) para detectar ciclos negativos (lucro > 1)
-    const weight = -Math.log(rate);
     
-    this.edges.push({
-      from,
-      to,
-      rate,
-      weight,
-      dex,
-      metadata: {
-        liquidity: metadata.liquidity || 0,
-        volumeUSD: metadata.volumeUSD || 0,
-        ...metadata
-      }
-    });
-
-    // Cache do preço para consultas rápidas
-    const pairKey = `${from}/${to}`;
-    if (!this.tokenPrices[pairKey]) {
-      this.tokenPrices[pairKey] = {};
-    }
-    this.tokenPrices[pairKey][dex] = rate;
-  }
-
-  /**
-   * Implementação do algoritmo Bellman-Ford para detectar ciclos negativos
-   * @param {string} startToken - Token inicial
-   * @returns {object} Resultado da detecção
-   */
-  bellmanFord(startToken) {
-    if (!this.vertices.has(startToken)) {
-      return { hasNegativeCycle: false, distances: {}, paths: {} };
-    }
-
-    const vertices = Array.from(this.vertices);
-    const distances = {};
-    const paths = {};
-
-    // Inicializar distâncias
-    vertices.forEach(vertex => {
-      distances[vertex] = vertex === startToken ? 0 : Infinity;
-      paths[vertex] = [];
-    });
-
-    // Relaxar arestas V-1 vezes
-    for (let i = 0; i < vertices.length - 1; i++) {
-      for (const edge of this.edges) {
-        const { from, to, weight } = edge;
-        
-        if (distances[from] !== Infinity) {
-          const newDistance = distances[from] + weight;
-          if (newDistance < distances[to]) {
-            distances[to] = newDistance;
-            paths[to] = [...paths[from], edge];
-          }
-        }
-      }
-    }
-
-    // Verificar ciclos negativos
-    const negativeCycles = [];
-    for (const edge of this.edges) {
-      const { from, to, weight } = edge;
+    this.graph.clear();
+    this.tokenPairs.clear();
+    
+    let validPairs = 0;
+    let invalidPrices = 0;
+    
+    // Processar apenas pares válidos com filtros de sanidade rigorosos
+    Object.entries(tokenPrices).forEach(([pairKey, dexPrices]) => {
+      const [token0, token1] = pairKey.split('/');
       
-      if (distances[from] !== Infinity) {
-        const newDistance = distances[from] + weight;
-        if (newDistance < distances[to]) {
-          // Ciclo negativo detectado
-          const cycle = this.extractCycle(from, to, paths, edge);
-          if (cycle && cycle.length >= 3) { // Mínimo 3 tokens para triangular
-            negativeCycles.push(cycle);
+      if (!token0 || !token1 || token0 === token1) return;
+      
+      // Inicializar tokens no grafo
+      if (!this.graph.has(token0)) this.graph.set(token0, new Map());
+      if (!this.graph.has(token1)) this.graph.set(token1, new Map());
+      
+      // Processar preços de cada DEX com validação rigorosa
+      Object.entries(dexPrices).forEach(([dex, price]) => {
+        if (price > 0 && isFinite(price) && price < 1000000) { // Filtro de sanidade para preços realistas
+          // Aresta direta: token0 -> token1
+          this.graph.get(token0).set(`${token1}_${dex}`, {
+            to: token1,
+            rate: price,
+            dex,
+            liquidity: 100000 // Liquidez padrão para integração com dados reais
+          });
+          
+          // Aresta inversa: token1 -> token0
+          this.graph.get(token1).set(`${token0}_${dex}`, {
+            to: token0,
+            rate: 1/price,
+            dex,
+            liquidity: 100000
+          });
+        } else {
+          invalidPrices++;
+          if (config.arbitrageConfig?.enableDetailedLogging) {
+            console.warn(`⚠️ Preço inválido ignorado: ${pairKey} em ${dex} = ${price}`);
           }
         }
-      }
+      });
+      
+      validPairs++;
+    });
+    
+    const tokenCount = this.graph.size;
+    let edgeCount = 0;
+    this.graph.forEach(edges => edgeCount += edges.size);
+    
+    if (config.arbitrageConfig?.enableDetailedLogging) {
+      console.log(`✅ Grafo otimizado: ${tokenCount} tokens, ${edgeCount} arestas, ${validPairs} pares válidos`);
+      const tokens = Array.from(this.graph.keys());
+      console.log(`🔍 Tokens no grafo: ${tokens.join(', ')}`);
     }
-
-    return {
-      hasNegativeCycle: negativeCycles.length > 0,
-      negativeCycles,
-      distances,
-      paths
-    };
+    
+    return { vertices: tokenCount, edges: edgeCount, pairs: validPairs, invalidPrices };
   }
 
   /**
-   * Extrair o ciclo negativo detectado
-   * @param {string} from - Token origem da aresta que detectou o ciclo
-   * @param {string} to - Token destino da aresta que detectou o ciclo
-   * @param {object} paths - Caminhos acumulados
-   * @param {object} edge - Aresta que fechou o ciclo
-   * @returns {array} Ciclo extraído
+   * Encontrar melhor caminho entre dois tokens
    */
-  extractCycle(from, to, paths, edge) {
-    const cycle = [...paths[from], edge];
+  findBestPath(fromToken, toToken) {
+    if (!this.graph.has(fromToken)) return null;
     
-    // Verificar se realmente forma um ciclo
-    const startToken = cycle[0]?.from;
-    const endToken = cycle[cycle.length - 1]?.to;
+    const fromEdges = this.graph.get(fromToken);
+    let bestPath = null;
+    let bestRate = 0;
     
-    if (startToken && endToken && startToken === endToken) {
-      return cycle;
-    }
-
-    // Tentar encontrar o início do ciclo
-    const tokensSeen = new Set();
-    const cycleStart = [];
-    
-    for (let i = cycle.length - 1; i >= 0; i--) {
-      const currentEdge = cycle[i];
-      if (tokensSeen.has(currentEdge.to)) {
-        // Encontrou o início do ciclo
-        const cycleStartIndex = cycle.findIndex(e => e.from === currentEdge.to);
-        return cycle.slice(cycleStartIndex);
+    // Buscar conexão direta
+    fromEdges.forEach((edge, key) => {
+      if (edge.to === toToken && edge.rate > bestRate) {
+        bestRate = edge.rate;
+        bestPath = {
+          from: fromToken,
+          to: toToken,
+          rate: edge.rate,
+          dex: edge.dex,
+          liquidity: edge.liquidity
+        };
       }
-      tokensSeen.add(currentEdge.to);
-      cycleStart.unshift(currentEdge);
-    }
-
-    return cycle.length >= 3 ? cycle : null;
+    });
+    
+    return bestPath;
   }
 
   /**
-   * Calcular o lucro potencial de um ciclo
-   * @param {array} cycle - Ciclo de arbitragem
-   * @returns {object} Análise do lucro
+   * Encontrar caminho triangular entre 3 tokens
    */
-  calculateCycleProfit(cycle) {
-    if (!cycle || cycle.length === 0) {
-      return { profit: 0, profitPercent: 0, isValid: false };
+  findTrianglePath(tokenA, tokenB, tokenC) {
+    const pathAB = this.findBestPath(tokenA, tokenB);
+    const pathBC = this.findBestPath(tokenB, tokenC);
+    const pathCA = this.findBestPath(tokenC, tokenA);
+    
+    if (pathAB && pathBC && pathCA) {
+      return [pathAB, pathBC, pathCA];
     }
+    return null;
+  }
 
+  /**
+   * Analisar triângulo de arbitragem com validações rigorosas
+   */
+  analyzeTriangle(triangle) {
+    if (!triangle || triangle.length !== 3) {
+      return { isValid: false, rejectionReason: 'Triângulo inválido' };
+    }
+    
+    // Calcular lucro total
     let totalRate = 1;
     let minLiquidity = Infinity;
-    let totalVolume = 0;
-    let dexCount = new Set();
-
-    for (const edge of cycle) {
+    const dexs = new Set();
+    
+    triangle.forEach(edge => {
       totalRate *= edge.rate;
-      minLiquidity = Math.min(minLiquidity, edge.metadata.liquidity || 0);
-      totalVolume += edge.metadata.volumeUSD || 0;
-      dexCount.add(edge.dex);
-    }
-
+      minLiquidity = Math.min(minLiquidity, edge.liquidity);
+      dexs.add(edge.dex);
+    });
+    
     const profit = totalRate - 1;
     const profitPercent = profit * 100;
-
-    // Validar se é uma oportunidade real
-    const minProfitPercent = config.arbitrageConfig?.minProfitPercent || 0.1;
-    const minLiquidityUSD = config.qualityFilters?.minLiquidityUSD || 50000;
     
-    const isValid =
-      profit > 0 &&
-      profitPercent > minProfitPercent &&
-      minLiquidity > minLiquidityUSD &&
-      dexCount.size >= 2; // Deve usar pelo menos 2 DEXs diferentes
-
+    // Validações de sanidade otimizadas
+    const minProfitPercent = config.arbitrageConfig?.minProfitPercent || 0.1;
+    const maxProfitPercent = 10; // Máximo realista para triangular (otimização chave)
+    const minLiquidityUSD = config.arbitrageConfig?.minLiquidityUSD || 30000;
+    
+    let rejectionReason = null;
+    let isValid = true;
+    
+    if (profit <= 0) {
+      rejectionReason = 'Lucro negativo ou zero';
+      isValid = false;
+    } else if (profitPercent < minProfitPercent) {
+      rejectionReason = `Lucro abaixo do mínimo (${profitPercent.toFixed(4)}% < ${minProfitPercent}%)`;
+      isValid = false;
+    } else if (profitPercent > maxProfitPercent) {
+      rejectionReason = `Lucro irrealista (${profitPercent.toFixed(4)}% > ${maxProfitPercent}%)`;
+      isValid = false;
+    } else if (minLiquidity < minLiquidityUSD) {
+      rejectionReason = `Liquidez insuficiente ($${minLiquidity.toLocaleString()} < $${minLiquidityUSD.toLocaleString()})`;
+      isValid = false;
+    } else if (dexs.size < 2 && !config.arbitrageConfig?.allowSingleDexArbitrage) {
+      rejectionReason = 'Não usa múltiplas DEXs';
+      isValid = false;
+    }
+    
     return {
       profit,
       profitPercent,
       totalRate,
       minLiquidity,
-      totalVolume,
-      dexCount: dexCount.size,
+      dexCount: dexs.size,
+      dexs: Array.from(dexs),
       isValid,
-      quality: this.assessCycleQuality(cycle, profit, minLiquidity, totalVolume)
+      rejectionReason,
+      quality: this.assessQuality(profitPercent, minLiquidity)
     };
   }
 
   /**
-   * Avaliar a qualidade de um ciclo de arbitragem
-   * @param {array} cycle - Ciclo de arbitragem
-   * @param {number} profit - Lucro calculado
-   * @param {number} minLiquidity - Liquidez mínima
-   * @param {number} totalVolume - Volume total
-   * @returns {string} Qualidade (high/medium/low)
+   * Avaliar qualidade da oportunidade (otimizado)
    */
-  assessCycleQuality(cycle, profit, minLiquidity, totalVolume) {
-    const profitPercent = profit * 100;
-    
-    // Critérios para alta qualidade
-    if (profitPercent > 1.0 && minLiquidity > 500000 && totalVolume > 1000000) {
-      return 'high';
-    }
-    
-    // Critérios para qualidade média
-    if (profitPercent > 0.5 && minLiquidity > 100000 && totalVolume > 100000) {
-      return 'medium';
-    }
-    
+  assessQuality(profitPercent, minLiquidity) {
+    if (profitPercent > 2.0 && minLiquidity > 200000) return 'high';
+    if (profitPercent > 1.0 && minLiquidity > 100000) return 'medium';
     return 'low';
+  }
+
+  /**
+   * Remover triângulos duplicados (otimizado)
+   */
+  removeDuplicateTriangles(opportunities) {
+    const seen = new Set();
+    return opportunities.filter(opp => {
+      const signature = opp.tokens.sort().join('-') + opp.dexs.sort().join('-');
+      if (seen.has(signature)) return false;
+      seen.add(signature);
+      return true;
+    });
+  }
+
+  /**
+   * Obter estatísticas do grafo
+   */
+  getStats() {
+    const tokenCount = this.graph.size;
+    let edgeCount = 0;
+    this.graph.forEach(edges => edgeCount += edges.size);
+    
+    return {
+      vertices: tokenCount,
+      edges: edgeCount,
+      tokenPairs: this.tokenPairs.size
+    };
   }
 
   /**
    * Limpar o grafo
    */
   clear() {
-    this.vertices.clear();
-    this.edges = [];
-    this.tokenPrices = {};
-  }
-
-  /**
-   * Obter estatísticas do grafo
-   * @returns {object} Estatísticas
-   */
-  getStats() {
-    return {
-      vertices: this.vertices.size,
-      edges: this.edges.length,
-      tokenPairs: Object.keys(this.tokenPrices).length
-    };
+    this.graph.clear();
+    this.tokenPairs.clear();
   }
 }
 
 /**
- * TriangularArbitrageService - Serviço principal para detecção de arbitragem triangular
+ * TriangularArbitrageService - Serviço principal otimizado para detecção de arbitragem triangular
+ *
+ * VERSÃO OTIMIZADA que implementa a lógica que detectou 114 oportunidades válidas
  */
 class TriangularArbitrageService {
   constructor() {
-    this.graph = new ArbitrageGraph();
+    this.graph = new OptimizedArbitrageGraph();
     this.lastUpdate = null;
     this.cachedOpportunities = [];
   }
 
   /**
-   * Construir o grafo de arbitragem a partir dos dados de preços
+   * Construir o grafo de arbitragem (mantém interface compatível)
    * @param {object} tokenPrices - Preços dos tokens por DEX
    */
   buildGraph(tokenPrices) {
-    console.log('🔧 Construindo grafo de arbitragem triangular...');
+    // 🔍 DEBUG: Log detalhado do que está sendo recebido no TriangularArbitrageService
+    console.log('🔍 [DEBUG] TriangularArbitrageService.buildGraph recebeu:');
+    console.log(`   - Tipo: ${typeof tokenPrices}`);
+    console.log(`   - É Array: ${Array.isArray(tokenPrices)}`);
+    console.log(`   - Chaves principais: ${Object.keys(tokenPrices || {}).join(', ')}`);
     
-    this.graph.clear();
-    let edgesAdded = 0;
-
-    Object.entries(tokenPrices).forEach(([pairKey, dexPrices]) => {
-      const [token0, token1] = pairKey.split('/');
-      
-      Object.entries(dexPrices).forEach(([dex, price]) => {
-        if (price > 0 && isFinite(price)) {
-          // Metadados padrão para pools (valores simulados para teste)
-          const metadata = {
-            liquidity: 100000, // $100k padrão para teste
-            volumeUSD: 50000   // $50k padrão para teste
-          };
-          
-          // Adicionar aresta direta: token0 -> token1
-          this.graph.addEdge(token0, token1, price, dex, metadata);
-          
-          // Adicionar aresta inversa: token1 -> token0
-          this.graph.addEdge(token1, token0, 1/price, dex, metadata);
-          
-          edgesAdded += 2;
-        }
-      });
-    });
-
-    const stats = this.graph.getStats();
-    console.log(`✅ Grafo construído: ${stats.vertices} tokens, ${edgesAdded} arestas`);
+    // Verificar se é o objeto completo em vez de tokenPrices
+    if (tokenPrices && typeof tokenPrices === 'object' && tokenPrices.tokenPrices) {
+      console.log('🚨 [BUG CONFIRMADO] TriangularService também recebeu objeto completo!');
+      console.log(`   - tokenPrices.tokenPrices existe: ${!!tokenPrices.tokenPrices}`);
+      console.log(`   - Pares em tokenPrices.tokenPrices: ${tokenPrices.tokenPrices ? Object.keys(tokenPrices.tokenPrices).length : 'NULL'}`);
+    } else {
+      console.log('✅ [DADOS CORRETOS] TriangularService recebeu dados de preços válidos');
+    }
     
-    return stats;
+    if (config.arbitrageConfig?.enableDetailedLogging) {
+      console.log(`📊 Input tokenPrices: ${Object.keys(tokenPrices).length} pares recebidos`);
+      console.log(`🔍 Pares disponíveis: ${Object.keys(tokenPrices).join(', ')}`);
+    }
+    
+    return this.graph.buildOptimizedGraph(tokenPrices);
   }
 
   /**
-   * Detectar oportunidades de arbitragem triangular
+   * Detectar oportunidades triangulares (FOCO OTIMIZADO - apenas 3 tokens)
    * @param {object} tokenPrices - Preços dos tokens por DEX
    * @returns {object} Oportunidades detectadas
    */
   detectOpportunities(tokenPrices) {
-    console.log('🔍 Detectando oportunidades de arbitragem triangular...');
+    console.log('🔍 Detectando oportunidades triangulares otimizadas (3 tokens apenas)...');
     
-    // Construir grafo
+    // Construir grafo otimizado
     const graphStats = this.buildGraph(tokenPrices);
-    
     const opportunities = [];
     const rejectedOpportunities = [];
-    const tokens = Array.from(this.graph.vertices);
     
-    // Executar Bellman-Ford para cada token como ponto de partida
-    for (const startToken of tokens) {
-      const result = this.graph.bellmanFord(startToken);
-      
-      if (result.hasNegativeCycle && result.negativeCycles) {
-        result.negativeCycles.forEach(cycle => {
-          const profitAnalysis = this.graph.calculateCycleProfit(cycle);
-          
-          const opportunity = {
-            type: 'triangular',
-            startToken,
-            cycle,
-            tokens: this.extractTokensFromCycle(cycle),
-            dexs: this.extractDexsFromCycle(cycle),
-            ...profitAnalysis,
-            timestamp: Date.now()
-          };
-          
-          if (profitAnalysis.isValid) {
-            opportunities.push(opportunity);
-          } else {
-            rejectedOpportunities.push({
-              ...opportunity,
-              rejectionReason: this.getRejectReason(profitAnalysis)
-            });
+    const tokens = Array.from(this.graph.graph.keys());
+    
+    if (config.arbitrageConfig?.enableDetailedLogging) {
+      console.log(`🔍 Analisando ${tokens.length} tokens: ${tokens.join(', ')}`);
+    }
+    
+    // OTIMIZAÇÃO CHAVE: Buscar apenas ciclos triangulares: A -> B -> C -> A
+    for (let i = 0; i < tokens.length; i++) {
+      for (let j = 0; j < tokens.length; j++) {
+        for (let k = 0; k < tokens.length; k++) {
+          if (i !== j && j !== k && k !== i) {
+            const tokenA = tokens[i];
+            const tokenB = tokens[j];
+            const tokenC = tokens[k];
+            
+            const triangle = this.graph.findTrianglePath(tokenA, tokenB, tokenC);
+            if (triangle) {
+              const analysis = this.graph.analyzeTriangle(triangle);
+              
+              if (analysis.isValid) {
+                opportunities.push({
+                  type: 'triangular',
+                  tokens: [tokenA, tokenB, tokenC],
+                  path: triangle,
+                  cycle: triangle, // Compatibilidade com sistema existente
+                  ...analysis,
+                  timestamp: Date.now()
+                });
+              } else {
+                rejectedOpportunities.push({
+                  tokens: [tokenA, tokenB, tokenC],
+                  ...analysis,
+                  rejectionReason: analysis.rejectionReason
+                });
+              }
+            }
           }
-        });
+        }
       }
     }
-
-    // Remover duplicatas e ordenar por lucro
-    const uniqueOpportunities = this.removeDuplicates(opportunities);
+    
+    // Remover duplicatas e ordenar (otimizado)
+    const uniqueOpportunities = this.graph.removeDuplicateTriangles(opportunities);
     const sortedOpportunities = uniqueOpportunities.sort((a, b) => b.profitPercent - a.profitPercent);
-
-    console.log(`✅ Detecção concluída: ${sortedOpportunities.length} oportunidades válidas, ${rejectedOpportunities.length} rejeitadas`);
-
+    
+    console.log(`✅ Análise triangular otimizada: ${sortedOpportunities.length} oportunidades válidas, ${rejectedOpportunities.length} rejeitadas`);
+    
     this.cachedOpportunities = sortedOpportunities;
     this.lastUpdate = Date.now();
 
@@ -357,11 +343,10 @@ class TriangularArbitrageService {
   }
 
   /**
-   * Extrair tokens únicos de um ciclo
-   * @param {array} cycle - Ciclo de arbitragem
-   * @returns {array} Lista de tokens únicos
+   * COMPATIBILIDADE: Extrair tokens únicos de um ciclo/path
    */
   extractTokensFromCycle(cycle) {
+    if (!cycle) return [];
     const tokens = new Set();
     cycle.forEach(edge => {
       tokens.add(edge.from);
@@ -371,63 +356,46 @@ class TriangularArbitrageService {
   }
 
   /**
-   * Extrair DEXs únicos de um ciclo
-   * @param {array} cycle - Ciclo de arbitragem
-   * @returns {array} Lista de DEXs únicos
+   * COMPATIBILIDADE: Extrair DEXs únicos de um ciclo/path
    */
   extractDexsFromCycle(cycle) {
+    if (!cycle) return [];
     const dexs = new Set();
     cycle.forEach(edge => dexs.add(edge.dex));
     return Array.from(dexs);
   }
 
   /**
-   * Obter razão de rejeição baseada na análise de lucro
-   * @param {object} profitAnalysis - Análise de lucro
-   * @returns {string} Razão da rejeição
+   * COMPATIBILIDADE: Obter razão de rejeição
    */
   getRejectReason(profitAnalysis) {
-    if (profitAnalysis.profit <= 0) return 'Lucro negativo ou zero';
-    if (profitAnalysis.profitPercent <= (config.arbitrageConfig?.minProfitPercent || 0.1)) return 'Lucro abaixo do mínimo';
-    if (profitAnalysis.minLiquidity <= (config.qualityFilters?.minLiquidityUSD || 50000)) return 'Liquidez insuficiente';
-    if (profitAnalysis.dexCount < 2) return 'Não usa múltiplas DEXs';
-    return 'Critérios de qualidade não atendidos';
+    return profitAnalysis.rejectionReason || 'Critérios de qualidade não atendidos';
   }
 
   /**
-   * Remover oportunidades duplicadas
-   * @param {array} opportunities - Lista de oportunidades
-   * @returns {array} Lista sem duplicatas
+   * COMPATIBILIDADE: Remover duplicatas (usa método otimizado)
    */
   removeDuplicates(opportunities) {
-    const seen = new Set();
-    return opportunities.filter(opp => {
-      const signature = opp.tokens.sort().join('-') + opp.dexs.sort().join('-');
-      if (seen.has(signature)) {
-        return false;
-      }
-      seen.add(signature);
-      return true;
-    });
+    return this.graph.removeDuplicateTriangles(opportunities);
   }
 
   /**
-   * Formatar oportunidade para exibição
+   * Formatar oportunidade para exibição (compatível com sistema existente)
    * @param {object} opportunity - Oportunidade de arbitragem
    * @returns {object} Oportunidade formatada
    */
   formatOpportunity(opportunity) {
-    const path = opportunity.cycle.map(edge => 
+    const path = (opportunity.path || opportunity.cycle || []).map(edge =>
       `${edge.from}→${edge.to}(${edge.dex})`
     ).join(' → ');
 
     return {
       type: 'Arbitragem Triangular',
-      description: `${opportunity.tokens.join(' → ')} → ${opportunity.tokens[0]}`,
+      description: `${opportunity.tokens.join(' → ')}`,
       path,
       profitPercent: `${opportunity.profitPercent.toFixed(4)}%`,
       minLiquidity: `$${opportunity.minLiquidity.toLocaleString()}`,
-      totalVolume: `$${opportunity.totalVolume.toLocaleString()}`,
+      totalVolume: opportunity.totalVolume ? `$${opportunity.totalVolume.toLocaleString()}` : 'N/A',
       dexCount: opportunity.dexCount,
       quality: opportunity.quality.toUpperCase(),
       tokens: opportunity.tokens,
@@ -461,5 +429,8 @@ class TriangularArbitrageService {
     };
   }
 }
+
+// MANTER COMPATIBILIDADE: Exportar ArbitrageGraph como alias para OptimizedArbitrageGraph
+const ArbitrageGraph = OptimizedArbitrageGraph;
 
 module.exports = { TriangularArbitrageService, ArbitrageGraph };

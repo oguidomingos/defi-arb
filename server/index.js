@@ -1,3 +1,4 @@
+require('dotenv').config({ path: '../.env' });
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -134,11 +135,34 @@ class DefiArbitrageServer {
         
         // Analisar oportunidades de arbitragem
         const directOpportunities = this.arbitrageService.analyzeOpportunities(tokenPrices, gasPrice);
-        const triangularOpportunities = this.triangularArbitrageService.detectOpportunities(tokenPrices);
+        const triangularOpportunities = this.triangularArbitrageService.detectOpportunities(tokenPrices.tokenPrices || tokenPrices);
+        
+        // Converter oportunidades triangulares para formato compatível
+        const convertedTriangularOpportunities = triangularOpportunities.opportunities.map(opp => ({
+          type: 'triangular',
+          tokenA: opp.tokens?.[0] || 'TOKEN_A',
+          tokenB: opp.tokens?.[1] || 'TOKEN_B',
+          tokenC: opp.tokens?.[2] || 'TOKEN_C',
+          tokens: opp.tokens,
+          dexA: opp.dexs?.[0] || 'unknown',
+          dexB: opp.dexs?.[1] || 'unknown',
+          dexC: opp.dexs?.[2] || 'unknown',
+          dexs: opp.dexs,
+          expectedProfit: opp.profitPercent || 0,
+          profitPercentage: opp.profitPercent || 0,
+          netProfit: opp.netProfit || opp.profitPercent || 0,
+          volume: opp.totalVolume || 1000,
+          amount: opp.totalVolume || 1000,
+          minLiquidity: opp.minLiquidity,
+          quality: opp.quality,
+          timestamp: opp.timestamp,
+          path: opp.path,
+          cycle: opp.cycle
+        }));
         
         const allOpportunities = [
           ...directOpportunities.opportunities,
-          ...triangularOpportunities.opportunities
+          ...convertedTriangularOpportunities
         ];
 
         this.systemState.totalOpportunities = allOpportunities.length;
@@ -327,11 +351,34 @@ class DefiArbitrageServer {
       
       // Executar análises
       const directResults = this.arbitrageService.analyzeOpportunities(tokenPrices, gasPrice);
-      const triangularResults = this.triangularArbitrageService.detectOpportunities(tokenPrices);
+      const triangularResults = this.triangularArbitrageService.detectOpportunities(tokenPrices.tokenPrices || tokenPrices);
+      
+      // Converter oportunidades triangulares para formato compatível
+      const convertedTriangularOpportunities = triangularResults.opportunities.map(opp => ({
+        type: 'triangular',
+        tokenA: opp.tokens?.[0] || 'TOKEN_A',
+        tokenB: opp.tokens?.[1] || 'TOKEN_B',
+        tokenC: opp.tokens?.[2] || 'TOKEN_C',
+        tokens: opp.tokens,
+        dexA: opp.dexs?.[0] || 'unknown',
+        dexB: opp.dexs?.[1] || 'unknown',
+        dexC: opp.dexs?.[2] || 'unknown',
+        dexs: opp.dexs,
+        expectedProfit: opp.profitPercent || 0,
+        profitPercentage: opp.profitPercent || 0,
+        netProfit: opp.netProfit || opp.profitPercent || 0,
+        volume: opp.totalVolume || 1000,
+        amount: opp.totalVolume || 1000,
+        minLiquidity: opp.minLiquidity,
+        quality: opp.quality,
+        timestamp: opp.timestamp,
+        path: opp.path,
+        cycle: opp.cycle
+      }));
       
       const allOpportunities = [
         ...directResults.opportunities,
-        ...triangularResults.opportunities
+        ...convertedTriangularOpportunities
       ];
 
       // Atualizar estado do sistema
