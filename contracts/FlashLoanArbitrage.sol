@@ -298,7 +298,7 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         address _tokenA,
         uint256 _amount,
         address[] calldata _path
-    ) external nonReentrant {
+    ) external {
         require(_path.length >= 2, "Path must have at least two tokens");
 
         // Codificar os dados da arbitragem
