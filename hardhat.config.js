@@ -1,5 +1,6 @@
 require('dotenv').config();
 require('@nomiclabs/hardhat-waffle');
+require('@nomicfoundation/hardhat-verify');
 
 module.exports = {
   solidity: {

@@ -1,4 +1,5 @@
 const config = require('../config');
+const blockchainService = require('./blockchainService');
 
 /**
  * SERVIÇO OTIMIZADO DE ARBITRAGEM TRIANGULAR
@@ -272,7 +273,7 @@ class TriangularArbitrageService {
    * @param {object} tokenPrices - Preços dos tokens por DEX
    * @returns {object} Oportunidades detectadas
    */
-  detectOpportunities(tokenPrices) {
+  async detectOpportunities(tokenPrices) {
     console.log('🔍 Detectando oportunidades triangulares otimizadas (3 tokens apenas)...');
     
     // Construir grafo otimizado
@@ -308,6 +309,30 @@ class TriangularArbitrageService {
                   ...analysis,
                   timestamp: Date.now()
                 });
+
+                // 4. Adicionar logs detalhados
+                console.log(`⚡ Oportunidade de arbitragem detectada: ${tokenA} -> ${tokenB} -> ${tokenC} com lucro de ${analysis.profitPercent.toFixed(4)}%`);
+
+                // 3. Extrair parâmetros para initiateArbitrageFromBackend
+                const _tokenA = triangle[0].from; // Primeiro token na rota
+                // Calcular a quantidade ideal para o flash loan (exemplo: 100 USD de lucro)
+                // Isso é um placeholder. A lógica real de cálculo de `_amount` deve ser mais sofisticada.
+                const _amount = analysis.profit * 1000; // Exemplo: lucro de 1% em 1000 USD = 10 USD
+                const _path = triangle.map(edge => edge.to); // Rota completa dos tokens
+
+                console.log(`🚀 Iniciando arbitragem com: TokenA=${_tokenA}, Amount=${_amount}, Path=${_path.join(' -> ')}`);
+
+                try {
+                  // 2. Chamar a função initiateArbitrageFromBackend do contrato FlashLoanArbitrage
+                  const tx = await blockchainService.initiateArbitrageFromBackend(_tokenA, _amount, _path);
+                  console.log(`✅ Transação de arbitragem enviada: ${tx.hash}`);
+                  // Opcional: Esperar pela confirmação da transação
+                  // await tx.wait();
+                  // console.log(`🎉 Transação de arbitragem confirmada!`);
+                } catch (error) {
+                  console.error(`❌ Erro ao iniciar arbitragem via contrato: ${error.message}`);
+                }
+
               } else {
                 rejectedOpportunities.push({
                   tokens: [tokenA, tokenB, tokenC],
@@ -320,13 +345,13 @@ class TriangularArbitrageService {
         }
       }
     }
-    
+
     // Remover duplicatas e ordenar (otimizado)
     const uniqueOpportunities = this.graph.removeDuplicateTriangles(opportunities);
     const sortedOpportunities = uniqueOpportunities.sort((a, b) => b.profitPercent - a.profitPercent);
-    
+
     console.log(`✅ Análise triangular otimizada: ${sortedOpportunities.length} oportunidades válidas, ${rejectedOpportunities.length} rejeitadas`);
-    
+
     this.cachedOpportunities = sortedOpportunities;
     this.lastUpdate = Date.now();
 

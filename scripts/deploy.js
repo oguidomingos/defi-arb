@@ -33,6 +33,13 @@ async function main() {
 
   // Salvar endereços em arquivo
   const fs = require('fs');
+  const path = require('path');
+  const deploymentsDir = './deployments';
+
+  if (!fs.existsSync(deploymentsDir)) {
+    fs.mkdirSync(deploymentsDir, { recursive: true });
+  }
+
   const deploymentInfo = {
     network: hre.network.name,
     deployer: deployer.address,
@@ -43,7 +50,7 @@ async function main() {
   };
 
   fs.writeFileSync(
-    `deployments/${hre.network.name}.json`,
+    path.join(deploymentsDir, `${hre.network.name}.json`),
     JSON.stringify(deploymentInfo, null, 2)
   );
 

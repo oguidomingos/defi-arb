@@ -27,6 +27,7 @@
   "license": "MIT",
   "dependencies": {
     "@apollo/client": "^3.8.8",
+    "@uniswap/v3-periphery": "^1.4.3",
     "axios": "^1.6.0",
     "compression": "^1.8.0",
     "cors": "^2.8.5",
@@ -42,6 +43,7 @@
     "ws": "^8.14.2"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-verify": "^2.0.14",
     "@nomiclabs/hardhat-ethers": "^2.2.3",
     "@nomiclabs/hardhat-waffle": "^2.0.6",
     "@openzeppelin/contracts": "^4.9.3",

@@ -308,3 +308,31 @@ pm2 save
 ---
 
 **Última atualização**: Dezembro 2024 
+
+# Atualização: Lógica de Swaps On-Chain
+
+O contrato FlashLoanArbitrage agora implementa a lógica de arbitragem entre DEXs diretamente on-chain, suportando Uniswap V3, SushiSwap e QuickSwap (v2) na Polygon.
+
+## DEXs Suportadas
+- Uniswap V3 (0xE592427A0AEce92De3Edee1F18E0157C05861564)
+- SushiSwap (0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506)
+- QuickSwap v2 (0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff)
+
+## Lógica de Rotas
+A função `_executeArbitrage` executa swaps conforme a rota informada em `ArbitrageData.route` (ex: "uniswap->sushiswap"). Para cada rota suportada, há um bloco condicional que executa as trocas apropriadas usando as funções auxiliares `swapUniswapV3` e `swapUniswapV2`.
+
+- Para rotas diretas (ex: uniswap->sushiswap), o contrato realiza:
+  1. Swap tokenA -> tokenB na Uniswap V3
+  2. Swap tokenB -> tokenA na SushiSwap
+
+Outras rotas podem ser adicionadas conforme necessário.
+
+## Eventos
+O evento `ArbitrageExecuted` é emitido ao final da operação, informando tokens, lucro e rota utilizada.
+
+## Aprovação de Tokens
+Os tokens principais (WMATIC, USDC, WETH) são aprovados para os routers no construtor. Para novos tokens, é necessário aprovar manualmente.
+
+## Observações
+- O contrato utiliza SafeERC20 para transferências seguras.
+- O cálculo de lucro é feito comparando o saldo do token inicial antes e depois das operações. 
