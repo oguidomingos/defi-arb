@@ -7,13 +7,13 @@ describe("FlashLoanArbitrage", function () {
   let owner;
 
   // Endereços reais da Polygon Mainnet para tokens e routers
-  const WMATIC_ADDRESS = ethers.utils.getAddress("0x0d500B1d8E8ef31E21C99d1Db9A6444d3ADf1270"); // WMATIC
-  const USDC_ADDRESS = ethers.utils.getAddress("0x2791Bca1f2de4661ED88A30C99A7a9226C9f7861"); // USDC
-  const WETH_ADDRESS = ethers.utils.getAddress("0x7ceb23fd6bc0add59e62ac25578270f7f1a9ac7f"); // WETH
+  const WMATIC_ADDRESS = ethers.utils.getAddress("0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270"); // WMATIC
+  const USDC_ADDRESS = ethers.utils.getAddress("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"); // USDC
+  const WETH_ADDRESS = ethers.utils.getAddress("0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619"); // WETH
 
   // Endereços reais de routers Uniswap/Sushi na Polygon Mainnet
-  const UNISWAP_V2_ROUTER_ADDRESS = ethers.utils.getAddress("0x1b02dA8Cb0d097e5387A095520fBc3fD7Ef519Dc"); // SushiSwap Router (Uniswap V2 compatible)
-  const UNISWAP_V3_ROUTER_ADDRESS = ethers.utils.getAddress("0x68b3465833fb72A70ecDF485E0E248bf280eeFaa"); // Uniswap V3 SwapRouter
+  const UNISWAP_V2_ROUTER_ADDRESS = ethers.utils.getAddress("0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506"); // SushiSwap Router (Uniswap V2 compatible)
+  const UNISWAP_V3_ROUTER_ADDRESS = ethers.utils.getAddress("0xE592427A0AEce92De3Edee1F18E0157C05861564"); // Uniswap V3 SwapRouter
 
   before(async function () {
     [owner] = await ethers.getSigners();

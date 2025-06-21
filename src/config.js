@@ -27,21 +27,21 @@ const config = {
   tokens: {
     // Tokens principais (mantidos)
     USDC: {
-      address: process.env.USDC_ADDRESS || '0x2791bca1f2de4661ed88a30c99a7a9449aa84174',
+      address: process.env.USDC_ADDRESS || '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
       symbol: 'USDC',
       decimals: 6,
       isCore: true,
       priority: 1
     },
     WETH: {
-      address: process.env.WETH_ADDRESS || '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619',
+      address: process.env.WETH_ADDRESS || '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',
       symbol: 'WETH',
       decimals: 18,
       isCore: true,
       priority: 1
     },
     WMATIC: {
-      address: process.env.WMATIC_ADDRESS || '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270',
+      address: process.env.WMATIC_ADDRESS || '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
       symbol: 'WMATIC',
       decimals: 18,
       isCore: true,
