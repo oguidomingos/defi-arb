@@ -38,7 +38,8 @@ module.exports = {
     hardhat: {
       forking: {
         url: process.env.ALCHEMY_POLYGON_RPC_URL ||
-             infuraUrl,
+             infuraUrl ||
+             'https://polygon-rpc.com',
         blockNumber: 50000000
       }
     }
