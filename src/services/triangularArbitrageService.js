@@ -1,3 +1,4 @@
+const { ethers } = require('ethers');
 const config = require('../config');
 const blockchainService = require('./blockchainService');
 
@@ -314,23 +315,66 @@ class TriangularArbitrageService {
                 console.log(`⚡ Oportunidade de arbitragem detectada: ${tokenA} -> ${tokenB} -> ${tokenC} com lucro de ${analysis.profitPercent.toFixed(4)}%`);
 
                 // 3. Extrair parâmetros para initiateArbitrageFromBackend
-                const _tokenA = triangle[0].from; // Primeiro token na rota
-                // Calcular a quantidade ideal para o flash loan (exemplo: 100 USD de lucro)
-                // Isso é um placeholder. A lógica real de cálculo de `_amount` deve ser mais sofisticada.
-                const _amount = analysis.profit * 1000; // Exemplo: lucro de 1% em 1000 USD = 10 USD
-                const _path = triangle.map(edge => edge.to); // Rota completa dos tokens
+                const flashLoanToken = triangle[0].from; // O token inicial do flash loan
+                // TODO: Implementar lógica mais sofisticada para calcular a quantidade ideal do flash loan.
+                // Por enquanto, um valor fixo ou baseado em uma estimativa simples.
+                const flashLoanAmount = ethers.utils.parseUnits("100", 6); // Exemplo: 100 USDC, assumindo 6 decimais
 
-                console.log(`🚀 Iniciando arbitragem com: TokenA=${_tokenA}, Amount=${_amount}, Path=${_path.join(' -> ')}`);
+                // Construir o array de ArbitrageStep
+                const arbitrageSteps = triangle.map(edge => {
+                  let dexType;
+                  switch (edge.dex) {
+                    case 'uniswap_v2':
+                      dexType = blockchainService.DexType.UNISWAP_V2;
+                      break;
+                    case 'uniswap_v3':
+                      dexType = blockchainService.DexType.UNISWAP_V3;
+                      break;
+                    case 'sushiswap':
+                      dexType = blockchainService.DexType.SUSHISWAP;
+                      break;
+                    case 'quickswap':
+                      dexType = blockchainService.DexType.QUICKSWAP;
+                      break;
+                    default:
+                      throw new Error(`DEX desconhecida: ${edge.dex}`);
+                  }
+
+                  // Mapear símbolos de token para endereços
+                  const tokenInAddress = config.tokens[edge.from]?.address;
+                  const tokenOutAddress = config.tokens[edge.to]?.address;
+
+                  if (!tokenInAddress) {
+                    throw new Error(`Endereço para tokenIn '${edge.from}' não encontrado na configuração.`);
+                  }
+                  if (!tokenOutAddress) {
+                    throw new Error(`Endereço para tokenOut '${edge.to}' não encontrado na configuração.`);
+                  }
+
+                  return {
+                    tokenIn: tokenInAddress,
+                    tokenOut: tokenOutAddress,
+                    dexType: dexType,
+                    fee: 3000 // TODO: Obter a taxa real para Uniswap V3, se aplicável
+                  };
+                });
+
+                console.log(`🚀 Iniciando arbitragem com: FlashLoanToken=${flashLoanToken}, FlashLoanAmount=${ethers.utils.formatUnits(flashLoanAmount, 6)}, Passos=${JSON.stringify(arbitrageSteps)}`);
 
                 try {
-                  // 2. Chamar a função initiateArbitrageFromBackend do contrato FlashLoanArbitrage
-                  const tx = await blockchainService.initiateArbitrageFromBackend(_tokenA, _amount, _path);
-                  console.log(`✅ Transação de arbitragem enviada: ${tx.hash}`);
-                  // Opcional: Esperar pela confirmação da transação
-                  // await tx.wait();
-                  // console.log(`🎉 Transação de arbitragem confirmada!`);
+                  // Chamar a função initiateArbitrageFromBackend do BlockchainService
+                  const txResult = await blockchainService.initiateArbitrageFromBackend(
+                    flashLoanToken,
+                    flashLoanAmount,
+                    arbitrageSteps
+                  );
+                  if (txResult.success) {
+                    console.log(`✅ Transação de arbitragem enviada: ${txResult.txHash}`);
+                  } else {
+                    console.error(`❌ Erro ao iniciar arbitragem via contrato: ${txResult.error}`);
+                  }
                 } catch (error) {
-                  console.error(`❌ Erro ao iniciar arbitragem via contrato: ${error.message}`);
+                  console.error(`❌ Erro inesperado ao iniciar arbitragem: ${error.message}`);
                 }
 
               } else {

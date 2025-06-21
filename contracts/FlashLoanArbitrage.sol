@@ -26,6 +26,7 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
     address public constant WETH = 0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619;
     
     // DEXs
+    address public constant UNISWAP_V2_ROUTER = 0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff; // QuickSwap router is a Uniswap V2 fork
     address public constant UNISWAP_V3_ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public constant SUSHISWAP_ROUTER = 0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506;
     address public constant QUICKSWAP_ROUTER = 0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff;
@@ -51,12 +52,27 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         address indexed recipient
     );
     
+    // Tipos de DEX suportados
+    enum DexType {
+        UNISWAP_V2,
+        UNISWAP_V3,
+        SUSHISWAP,
+        QUICKSWAP
+    }
+
+    // Estrutura para um passo da arbitragem
+    struct ArbitrageStep {
+        address tokenIn;
+        address tokenOut;
+        DexType dexType;
+        uint24 fee; // Apenas para Uniswap V3
+    }
+
     // Estrutura para dados de arbitragem
     struct ArbitrageData {
-        address tokenA;
-        address tokenB;
-        uint256 amount;
-        string route; // "uniswap->sushiswap" ou "quickswap->uniswap"
+        address flashLoanToken; // Token do flash loan
+        uint256 flashLoanAmount; // Quantidade do flash loan
+        ArbitrageStep[] steps; // Passos da rota de arbitragem
     }
     
     // Mapeamento de saldos de lucro
@@ -81,13 +97,13 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         uint256 amount,
         bytes memory data,
         uint16 referralCode
-    ) public nonReentrant {
+    ) public {
         require(receiver != address(0), "Invalid receiver");
         require(asset != address(0), "Invalid asset");
         require(amount > 0, "Invalid amount");
         
         // Chamar Aave Pool para flash loan
-        (bool success, bytes memory result) = AAVE_POOL.call(
+        (bool success, ) = AAVE_POOL.call(
             abi.encodeWithSignature(
                 "flashLoanSimple(address,address,uint256,bytes,uint16)",
                 receiver,
@@ -121,13 +137,13 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         address onBehalfOf,
         bytes memory data, // Alterado de calldata para memory
         uint16 referralCode
-    ) public nonReentrant {
+    ) public {
         require(receiver != address(0), "Invalid receiver");
         require(assets.length == amounts.length, "Arrays length mismatch");
         require(assets.length == interestRateModes.length, "Arrays length mismatch");
         
         // Chamar Aave Pool para flash loan múltiplo
-        (bool success, bytes memory result) = AAVE_POOL.call(
+        (bool success, ) = AAVE_POOL.call(
             abi.encodeWithSignature(
                 "flashLoan(address,address[],uint256[],uint256[],address,bytes,uint16)",
                 receiver,
@@ -170,16 +186,16 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         ArbitrageData memory arbitrageData = abi.decode(params, (ArbitrageData));
         
         // Executar arbitragem
-        uint256 profit = _executeArbitrage(arbitrageData);
+        uint256 profit = _executeArbitrage(arbitrageData, assets[0], amounts[0], premiums[0]);
         
         // Adicionar lucro ao mapeamento
-        profits[arbitrageData.tokenA] += profit;
+        profits[arbitrageData.flashLoanToken] += profit;
         
         emit ArbitrageExecuted(
-            arbitrageData.tokenA,
-            arbitrageData.tokenB,
+            arbitrageData.flashLoanToken,
+            arbitrageData.steps[arbitrageData.steps.length - 1].tokenOut, // Último token da rota
             profit,
-            arbitrageData.route
+            "Dynamic Arbitrage Route" // Rota dinâmica
         );
         
         // Aprovar reembolso para Aave
@@ -191,21 +207,47 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
     /**
      * @dev Executa a lógica de arbitragem
      * @param data Dados da arbitragem
+     * @param flashLoanToken O token do flash loan
+     * @param flashLoanAmount A quantidade do flash loan
+     * @param flashLoanPremium O prêmio do flash loan
      * @return Lucro obtido
      */
-    function _executeArbitrage(ArbitrageData memory data) internal returns (uint256) {
-        uint256 balanceBefore = IERC20(data.tokenA).balanceOf(address(this));
-        
-        // Exemplo de lógica para rota direta
-        if (keccak256(bytes(data.route)) == keccak256(bytes("uniswap->sushiswap"))) {
-            // Swap Uniswap V3 (tokenA -> tokenB)
-            uint256 amountOut1 = swapUniswapV3(UNISWAP_V3_ROUTER, data.tokenA, data.tokenB, data.amount, 1, 3000);
-            // Swap SushiSwap (tokenB -> tokenA)
-            swapUniswapV2(SUSHISWAP_ROUTER, data.tokenB, data.tokenA, amountOut1, 1);
+    function _executeArbitrage(
+        ArbitrageData memory data,
+        address flashLoanToken,
+        uint256 flashLoanAmount,
+        uint256 flashLoanPremium
+    ) internal returns (uint256) {
+        uint256 currentAmount = flashLoanAmount;
+        address currentToken = flashLoanToken;
+
+        for (uint256 i = 0; i < data.steps.length; i++) {
+            ArbitrageStep memory step = data.steps[i];
+            
+            require(currentToken == step.tokenIn, "Token mismatch in arbitrage step");
+
+            uint256 amountOutMin = (currentAmount * 99) / 100; // 1% slippage tolerance
+
+            if (step.dexType == DexType.UNISWAP_V2 || step.dexType == DexType.SUSHISWAP || step.dexType == DexType.QUICKSWAP) {
+                address router;
+                if (step.dexType == DexType.UNISWAP_V2) router = UNISWAP_V2_ROUTER;
+                else if (step.dexType == DexType.SUSHISWAP) router = SUSHISWAP_ROUTER;
+                else if (step.dexType == DexType.QUICKSWAP) router = QUICKSWAP_ROUTER;
+                else revert("Invalid DEX type for V2 swap");
+
+                currentAmount = swapUniswapV2(router, step.tokenIn, step.tokenOut, currentAmount, amountOutMin);
+            } else if (step.dexType == DexType.UNISWAP_V3) {
+                currentAmount = swapUniswapV3(UNISWAP_V3_ROUTER, step.tokenIn, step.tokenOut, currentAmount, amountOutMin, step.fee);
+            } else {
+                revert("Unsupported DEX type");
+            }
+            currentToken = step.tokenOut;
         }
-        // Adicionar outros casos de rota conforme necessário
-        uint256 balanceAfter = IERC20(data.tokenA).balanceOf(address(this));
-        return balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0;
+
+        uint256 balanceAfter = IERC20(flashLoanToken).balanceOf(address(this));
+        require(balanceAfter >= flashLoanAmount + flashLoanPremium, "Insufficient funds to repay flash loan");
+
+        return balanceAfter > flashLoanAmount + flashLoanPremium ? balanceAfter - (flashLoanAmount + flashLoanPremium) : 0;
     }
     
     /**
@@ -290,27 +332,26 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
 
     /**
      * @dev Inicia uma operação de arbitragem a partir do backend.
-     * @param _tokenA O token inicial do flash loan e da arbitragem.
-     * @param _amount A quantidade do token a ser emprestada e usada na arbitragem.
-     * @param _path O caminho completo dos tokens para a arbitragem.
+     * @param _flashLoanToken O token inicial do flash loan e da arbitragem.
+     * @param _flashLoanAmount A quantidade do token a ser emprestada e usada na arbitragem.
+     * @param _steps Os passos da rota de arbitragem.
      */
     function initiateArbitrageFromBackend(
-        address _tokenA,
-        uint256 _amount,
-        address[] calldata _path
+        address _flashLoanToken,
+        uint256 _flashLoanAmount,
+        ArbitrageStep[] calldata _steps
     ) external {
-        require(_path.length >= 2, "Path must have at least two tokens");
+        require(_steps.length > 0, "Arbitrage route must have at least one step");
 
         // Codificar os dados da arbitragem
         bytes memory data = abi.encode(ArbitrageData({
-            tokenA: _tokenA,
-            tokenB: _path[1], // Segundo token do path como tokenB
-            amount: _amount,
-            route: "dynamic_route" // Placeholder para a rota
+            flashLoanToken: _flashLoanToken,
+            flashLoanAmount: _flashLoanAmount,
+            steps: _steps
         }));
 
         // Chamar a função flashLoanSimple do Aave Pool
-        flashLoanSimple(address(this), _tokenA, _amount, data, 0);
+        flashLoanSimple(address(this), _flashLoanToken, _flashLoanAmount, data, 0);
     }
 
     function swapUniswapV2(address router, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin) internal returns (uint256) {
