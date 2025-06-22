@@ -49,9 +49,13 @@ class DefiArbitrageServer {
     try {
       this.cacheManager = new CacheManager();
       this.graphService = new GraphService();
-      this.arbitrageService = new ArbitrageService(this.cacheManager);
-      this.triangularArbitrageService = new TriangularArbitrageService();
+
+      // BlockchainService deve ser inicializado antes dos demais
       this.blockchainService = new BlockchainService();
+      this.blockchainService.initializeFlashLoanContract();
+
+      this.arbitrageService = new ArbitrageService(this.blockchainService);
+      this.triangularArbitrageService = new TriangularArbitrageService(this.blockchainService);
       
       console.log('✅ Todos os serviços inicializados com sucesso');
     } catch (error) {
