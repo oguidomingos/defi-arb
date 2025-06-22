@@ -8,8 +8,12 @@ Servidor Express.js que serve como API backend para o frontend React, integrando
 - **ArbitrageService**: Detecção de arbitragem direta com AlertEngine e CacheManager
 - **GraphService**: Busca dados reais das DEXs via subgraphs
 - **TriangularArbitrageService**: Detecção de oportunidades triangulares
-- **BlockchainService**: Interação com blockchain e estimativa de gás
+- **BlockchainService**: Interação com blockchain, inicialização do contrato de flash loan e estimativa de gás
 - **CacheManager**: Cache inteligente para otimização de performance
+
+Durante a inicialização (`initializeServices`), o `BlockchainService` é criado
+antes dos serviços de arbitragem e seu contrato de flash loan é configurado de
+forma síncrona para garantir disponibilidade imediata.
 
 ### 🌐 API REST Endpoints
 
