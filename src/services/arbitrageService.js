@@ -3,10 +3,11 @@ const { TriangularArbitrageService } = require('./triangularArbitrageService');
 const AlertEngine = require('./alertEngine');
 
 class ArbitrageService {
-  constructor() {
+  constructor(blockchainService) {
     this.minProfitabilityThreshold = config.minProfitabilityThreshold;
     this.maxSlippage = config.maxSlippage;
-    this.triangularService = new TriangularArbitrageService();
+    this.blockchainService = blockchainService; // Recebe a instância inicializada
+    this.triangularService = new TriangularArbitrageService(this.blockchainService); // Passa para o triangularService
     this.alertEngine = new AlertEngine({
       enabled: config.alertConfig?.enabled !== false,
       minProfitPercent: 0.5,
@@ -117,7 +118,12 @@ class ArbitrageService {
     
     const result = this.triangularService.detectOpportunities(tokenPrices);
     
-    console.log(`🔍 Debug triangular: ${result.opportunities.length} oportunidades, ${result.rejectedOpportunities.length} rejeitadas`);
+    if (!result || !result.opportunities) {
+      console.warn('⚠️ Serviço triangular retornou resultado inválido:', result);
+      return [];
+    }
+    
+    console.log(`🔍 Debug triangular: ${result.opportunities.length} oportunidades, ${result.rejectedOpportunities?.length || 0} rejeitadas`);
     
     // Converter formato para compatibilidade com o resto do sistema
     const compatibleOpportunities = result.opportunities.map(opp => {

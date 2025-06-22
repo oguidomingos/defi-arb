@@ -6,8 +6,8 @@ const config = require('./config');
 class ArbitrageBot {
   constructor() {
     this.graphService = new GraphService();
-    this.arbitrageService = new ArbitrageService();
-    this.blockchainService = new BlockchainService();
+    this.blockchainService = new BlockchainService(); // Inicializa primeiro
+    this.arbitrageService = new ArbitrageService(this.blockchainService); // Passa a instância inicializada
     
     this.isRunning = false;
     this.lastDataUpdate = 0;
@@ -20,6 +20,9 @@ class ArbitrageBot {
     console.log('🚀 Inicializando Sistema de Arbitragem na Polygon...\n');
     
     try {
+      // Garantir que o provider esteja inicializado antes de qualquer outra operação
+      await this.blockchainService.initializeProvider();
+
       // Verificar conectividade com a rede
       const networkInfo = await this.blockchainService.getNetworkInfo();
       if (networkInfo) {
@@ -38,8 +41,8 @@ class ArbitrageBot {
         console.log('   USDC:', balances.usdc, '\n');
       }
 
-      // Inicializar contrato de flash loan
-      this.blockchainService.initializeFlashLoanContract();
+      // Inicializar contrato de flash loan e aguardar
+      await this.blockchainService.initializeFlashLoanContract();
 
       console.log('✅ Sistema inicializado com sucesso!\n');
       return true;

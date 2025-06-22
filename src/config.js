@@ -177,7 +177,7 @@ const config = {
     }
   },
   
-  // Configurações de arbitragem triangular
+  // Configurações de arbitragem dinâmica
   arbitrageConfig: {
     minProfitPercent: 0.1,           // 0.1% mínimo de lucro
     maxProfitPercent: 50,            // 50% máximo (validação de sanidade)
@@ -185,7 +185,21 @@ const config = {
     maxGasFeesPercent: 0.05,         // 0.05% máximo de gas fees
     timeoutMs: 30000,                // 30s timeout para execução
     enableDetailedLogging: true,     // Logs detalhados para debug
-    allowSingleDexArbitrage: true    // Permitir arbitragem intra-DEX (uma única DEX)
+    allowSingleDexArbitrage: true,   // Permitir arbitragem intra-DEX (uma única DEX)
+    autoExecute: false,              // Execução automática de oportunidades
+    maxFlashLoanAmount: "1000",      // 1000 tokens (valor padrão)
+    maxRouteDepth: 4,                // Profundidade máxima de rotas
+    allowedDexs: [                   // DEXs permitidas para arbitragem
+      'uniswap_v3',
+      'sushiswap',
+      'quickswap'
+    ],
+    baseTokens: [                    // Tokens base para busca de oportunidades
+      'USDC',
+      'USDT',
+      'DAI',
+      'WETH'
+    ]
   },
 
   // Configurações de gás

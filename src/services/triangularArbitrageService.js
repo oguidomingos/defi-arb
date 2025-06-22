@@ -1,6 +1,6 @@
 const { ethers } = require('ethers');
 const config = require('../config');
-const blockchainService = require('./blockchainService');
+const BlockchainService = require('./blockchainService');
 
 /**
  * SERVIÇO OTIMIZADO DE ARBITRAGEM TRIANGULAR
@@ -206,6 +206,94 @@ class OptimizedArbitrageGraph {
   }
 
   /**
+   * Encontrar melhor rota de arbitragem (DFS com limite de profundidade)
+   * @param {string} baseToken - Token inicial/final do ciclo
+   * @param {number} maxDepth - Profundidade máxima da busca (padrão: 3)
+   * @returns {object|null} Melhor rota encontrada ou null
+   */
+  findBestArbitrageRoute(baseToken, maxDepth = 3) {
+    if (!this.graph.has(baseToken)) return null;
+
+    let bestRoute = null;
+    let bestProfit = 0;
+    const visited = new Set();
+
+    const dfs = (currentToken, path, currentRate) => {
+      // Ciclo completo encontrado (retorno ao token base)
+      if (path.length > 1 && currentToken === baseToken) {
+        const profit = currentRate - 1;
+        if (profit > bestProfit) {
+          bestProfit = profit;
+          bestRoute = {
+            path: [...path],
+            rate: currentRate,
+            profit,
+            dexes: this.extractDexesFromPath(path)
+          };
+        }
+        return;
+      }
+
+      // Limite de profundidade atingido
+      if (path.length >= maxDepth) return;
+
+      const edges = this.graph.get(currentToken);
+      if (!edges) return;
+
+      edges.forEach((edge) => {
+        if (!visited.has(edge.to)) {
+          visited.add(edge.to);
+          path.push({
+            from: currentToken,
+            to: edge.to,
+            dex: edge.dex,
+            rate: edge.rate,
+            liquidity: edge.liquidity
+          });
+
+          dfs(edge.to, path, currentRate * edge.rate);
+
+          path.pop();
+          visited.delete(edge.to);
+        }
+      });
+    };
+
+    dfs(baseToken, [], 1);
+    return bestRoute;
+  }
+
+  /**
+   * Extrair DEXs de um caminho
+   */
+  extractDexesFromPath(path) {
+    const dexSet = new Set();
+    path.forEach(step => dexSet.add(step.dex));
+    return Array.from(dexSet);
+  }
+
+  /**
+   * Extrair tokens únicos de um caminho (mantendo ordem)
+   */
+  extractTokensFromPath(path) {
+    const tokens = [];
+    const seen = new Set();
+    
+    path.forEach(step => {
+      if (!seen.has(step.from)) {
+        seen.add(step.from);
+        tokens.push(step.from);
+      }
+      if (!seen.has(step.to)) {
+        seen.add(step.to);
+        tokens.push(step.to);
+      }
+    });
+    
+    return tokens;
+  }
+
+  /**
    * Obter estatísticas do grafo
    */
   getStats() {
@@ -235,8 +323,9 @@ class OptimizedArbitrageGraph {
  * VERSÃO OTIMIZADA que implementa a lógica que detectou 114 oportunidades válidas
  */
 class TriangularArbitrageService {
-  constructor() {
+  constructor(blockchainService) {
     this.graph = new OptimizedArbitrageGraph();
+    this.blockchainService = blockchainService; // Recebe a instância inicializada
     this.lastUpdate = null;
     this.cachedOpportunities = [];
   }
@@ -274,21 +363,70 @@ class TriangularArbitrageService {
    * @param {object} tokenPrices - Preços dos tokens por DEX
    * @returns {object} Oportunidades detectadas
    */
-  async detectOpportunities(tokenPrices) {
-    console.log('🔍 Detectando oportunidades triangulares otimizadas (3 tokens apenas)...');
+  async detectOpportunities(tokenPrices, options = {}) {
+    const { maxDepth = 3, baseTokens = ['USDC', 'USDT', 'DAI', 'WETH'] } = options;
+    
+    console.log(`🔍 Detectando oportunidades de arbitragem (profundidade máxima: ${maxDepth})...`);
     
     // Construir grafo otimizado
     const graphStats = this.buildGraph(tokenPrices);
     const opportunities = [];
     const rejectedOpportunities = [];
     
-    const tokens = Array.from(this.graph.graph.keys());
+    // Log detalhado dos dados recebidos
+    console.log('🔍 [DEBUG] Dados recebidos no detectOpportunities:');
+    console.log('   - Tipo:', typeof tokenPrices);
+    console.log('   - Chaves:', Object.keys(tokenPrices || {}));
+    console.log('   - Exemplo de par:', Object.keys(tokenPrices)[0], '=>', tokenPrices[Object.keys(tokenPrices)[0]]);
+    
+    // Buscar oportunidades para cada token base
+    for (const baseToken of baseTokens) {
+      console.log(`🔍 Procurando rotas para token base: ${baseToken}`);
+      const route = this.graph.findBestArbitrageRoute(baseToken, maxDepth);
+      if (route) {
+        const analysis = this.graph.analyzeTriangle(route.path);
+        
+        if (analysis.isValid) {
+          const opportunity = {
+            type: 'dynamic',
+            tokens: this.graph.extractTokensFromPath(route.path),
+            path: route.path,
+            ...analysis,
+            timestamp: Date.now()
+          };
+          
+          opportunities.push(opportunity);
+    
+          // Execução automática se configurado
+          if (config.arbitrageConfig?.autoExecute && opportunity.profitPercent >= config.arbitrageConfig.minProfitPercent) {
+            try {
+              const result = await this.executeDynamicArbitrage(opportunity);
+              if (result.success) {
+                console.log(`✅ Arbitragem executada: TX ${result.txHash} | Lucro estimado: ${result.profitEstimate.toFixed(2)}%`);
+              } else {
+                console.error(`❌ Falha na execução: ${result.error}`);
+              }
+            } catch (error) {
+              console.error(`❌ Erro inesperado: ${error.message}`);
+            }
+          }
+        } else {
+          rejectedOpportunities.push({
+            tokens: this.graph.extractTokensFromPath(route.path),
+            ...analysis,
+            rejectionReason: analysis.rejectionReason
+          });
+        }
+      }
+    }
     
     if (config.arbitrageConfig?.enableDetailedLogging) {
+      const tokens = Array.from(this.graph.graph.keys());
       console.log(`🔍 Analisando ${tokens.length} tokens: ${tokens.join(', ')}`);
     }
     
     // OTIMIZAÇÃO CHAVE: Buscar apenas ciclos triangulares: A -> B -> C -> A
+    const tokens = Array.from(this.graph.graph.keys());
     for (let i = 0; i < tokens.length; i++) {
       for (let j = 0; j < tokens.length; j++) {
         for (let k = 0; k < tokens.length; k++) {
@@ -324,31 +462,34 @@ class TriangularArbitrageService {
                 const arbitrageSteps = triangle.map(edge => {
                   let dexType;
                   switch (edge.dex) {
+                    case 'uniswap':
                     case 'uniswap_v2':
-                      dexType = blockchainService.DexType.UNISWAP_V2;
+                      dexType = BlockchainService.DexType.UNISWAP_V2;
                       break;
                     case 'uniswap_v3':
-                      dexType = blockchainService.DexType.UNISWAP_V3;
+                      dexType = BlockchainService.DexType.UNISWAP_V3;
                       break;
                     case 'sushiswap':
-                      dexType = blockchainService.DexType.SUSHISWAP;
+                      dexType = BlockchainService.DexType.SUSHISWAP;
                       break;
                     case 'quickswap':
-                      dexType = blockchainService.DexType.QUICKSWAP;
+                      dexType = BlockchainService.DexType.QUICKSWAP;
                       break;
                     default:
-                      throw new Error(`DEX desconhecida: ${edge.dex}`);
+                      console.warn(`⚠️ DEX desconhecida: ${edge.dex}. Usando Uniswap V3 como fallback`);
+                      dexType = BlockchainService.DexType.UNISWAP_V3;
                   }
 
-                  // Mapear símbolos de token para endereços
+                  // Obter endereços dos tokens do config
+                  const config = require('../config');
                   const tokenInAddress = config.tokens[edge.from]?.address;
                   const tokenOutAddress = config.tokens[edge.to]?.address;
 
-                  if (!tokenInAddress) {
-                    throw new Error(`Endereço para tokenIn '${edge.from}' não encontrado na configuração.`);
+                  if (!tokenInAddress || !ethers.utils.isAddress(tokenInAddress)) {
+                    throw new Error(`Endereço inválido ou não encontrado para tokenIn: ${edge.from}`);
                   }
-                  if (!tokenOutAddress) {
-                    throw new Error(`Endereço para tokenOut '${edge.to}' não encontrado na configuração.`);
+                  if (!tokenOutAddress || !ethers.utils.isAddress(tokenOutAddress)) {
+                    throw new Error(`Endereço inválido ou não encontrado para tokenOut: ${edge.to}`);
                   }
 
                   return {
@@ -363,7 +504,7 @@ class TriangularArbitrageService {
 
                 try {
                   // Chamar a função initiateArbitrageFromBackend do BlockchainService
-                  const txResult = await blockchainService.initiateArbitrageFromBackend(
+                  const txResult = await this.blockchainService.initiateArbitrageFromBackend(
                     flashLoanToken,
                     flashLoanAmount,
                     arbitrageSteps
@@ -446,6 +587,64 @@ class TriangularArbitrageService {
    */
   removeDuplicates(opportunities) {
     return this.graph.removeDuplicateTriangles(opportunities);
+  }
+
+  /**
+   * Executar arbitragem dinâmica via contrato FlashLoan
+   * @param {object} opportunity - Oportunidade de arbitragem
+   * @returns {Promise<object>} Resultado da transação
+   */
+  async executeDynamicArbitrage(opportunity) {
+    if (!opportunity?.path?.length) {
+      throw new Error('Caminho de arbitragem inválido');
+    }
+
+    // 1. Converter tokens para endereços
+    const tokenAddresses = [];
+    for (const step of opportunity.path) {
+      const address = await this.blockchainService.getTokenAddress(step.to);
+      if (!ethers.utils.isAddress(address)) {
+        throw new Error(`Endereço inválido para token ${step.to}`);
+      }
+      tokenAddresses.push(address);
+    }
+
+    // 2. Calcular montante do flash loan (10% da liquidez mínima)
+    const minLiquidity = opportunity.path.reduce((min, step) =>
+      Math.min(min, step.liquidity), Infinity);
+    const flashLoanAmount = ethers.utils.parseUnits(
+      (minLiquidity * 0.1).toFixed(2),
+      18
+    );
+
+    // 3. Calcular retorno mínimo esperado (com margem de segurança)
+    const minReturn = ethers.utils.parseUnits(
+      (minLiquidity * 0.1 * (1 + opportunity.profit * 0.9)).toString(),
+      18
+    );
+
+    // 4. Executar no contrato
+    try {
+      const tx = await blockchainService.initiateDynamicArbitrage(
+        tokenAddresses[0], // Token do flash loan
+        flashLoanAmount,
+        minReturn,
+        tokenAddresses
+      );
+
+      return {
+        success: true,
+        txHash: tx.hash,
+        profitEstimate: opportunity.profitPercent,
+        amount: ethers.utils.formatUnits(flashLoanAmount, 18)
+      };
+    } catch (error) {
+      console.error('Erro na execução dinâmica:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 
   /**

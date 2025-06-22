@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -218,6 +219,8 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         uint256 flashLoanAmount,
         uint256 flashLoanPremium
     ) internal returns (uint256) {
+        console.log("Iniciando arbitragem com token:", flashLoanToken);
+        console.log("Quantidade:", flashLoanAmount);
         uint256 currentAmount = flashLoanAmount;
         address currentToken = flashLoanToken;
 
@@ -226,7 +229,7 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
             
             require(currentToken == step.tokenIn, "Token mismatch in arbitrage step");
 
-            uint256 amountOutMin = (currentAmount * 99) / 100; // 1% slippage tolerance
+            uint256 amountOutMin = (currentAmount * 97) / 100; // 3% slippage tolerance
 
             if (step.dexType == DexType.UNISWAP_V2 || step.dexType == DexType.SUSHISWAP || step.dexType == DexType.QUICKSWAP) {
                 address router;
@@ -342,6 +345,10 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         ArbitrageStep[] calldata _steps
     ) external {
         require(_steps.length > 0, "Arbitrage route must have at least one step");
+        require(_flashLoanAmount > 0, "Flash loan amount must be greater than zero");
+        
+        // Verificar se o contrato tem saldo suficiente para taxas
+        require(address(this).balance > 0.1 ether, "Insufficient MATIC for gas");
 
         // Codificar os dados da arbitragem
         bytes memory data = abi.encode(ArbitrageData({
@@ -350,8 +357,16 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
             steps: _steps
         }));
 
-        // Chamar a função flashLoanSimple do Aave Pool
-        flashLoanSimple(address(this), _flashLoanToken, _flashLoanAmount, data, 0);
+        // Aprovar o pool Aave para gastar o token
+        IERC20(_flashLoanToken).approve(AAVE_POOL, _flashLoanAmount);
+
+        try this.flashLoanSimple(address(this), _flashLoanToken, _flashLoanAmount, data, 0) {
+            // Sucesso
+        } catch Error(string memory reason) {
+            revert(string(abi.encodePacked("Flash loan failed: ", reason)));
+        } catch {
+            revert("Flash loan failed with unknown error");
+        }
     }
 
     function swapUniswapV2(address router, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin) internal returns (uint256) {
