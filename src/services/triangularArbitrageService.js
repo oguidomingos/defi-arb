@@ -625,7 +625,7 @@ class TriangularArbitrageService {
 
     // 4. Executar no contrato
     try {
-      const tx = await blockchainService.initiateDynamicArbitrage(
+      const tx = await this.blockchainService.initiateDynamicArbitrage(
         tokenAddresses[0], // Token do flash loan
         flashLoanAmount,
         minReturn,
