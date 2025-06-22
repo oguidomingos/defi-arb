@@ -762,6 +762,73 @@ class BlockchainService {
     }
   }
 
+  /**
+   * @dev Inicia uma operação de arbitragem dinâmica.
+   *      Caso o contrato não possua a função dedicada, faz fallback
+   *      para initiateArbitrageFromBackend utilizando Uniswap V3.
+   * @param flashLoanToken Token do flash loan
+   * @param flashLoanAmount Quantidade do flash loan
+   * @param minReturn Retorno mínimo esperado
+   * @param tokenPath Caminho de tokens para a arbitragem
+   */
+  async initiateDynamicArbitrage(flashLoanToken, flashLoanAmount, minReturn, tokenPath) {
+    if (!this.flashLoanContract || !this.wallet) {
+      throw new Error('Contrato de flash loan ou wallet não inicializado');
+    }
+
+    try {
+      console.log(
+        `🚀 Iniciando arbitragem dinâmica: Token=${flashLoanToken}, Quantidade=${ethers.utils.formatEther(flashLoanAmount)}`
+      );
+
+      let tx;
+      if (this.flashLoanContract.initiateDynamicArbitrage) {
+        tx = await this.flashLoanContract.initiateDynamicArbitrage(
+          flashLoanToken,
+          flashLoanAmount,
+          minReturn,
+          tokenPath
+        );
+      } else {
+        // Fallback simples usando Uniswap V3 para todas as etapas
+        const steps = [];
+        for (let i = 0; i < tokenPath.length - 1; i++) {
+          steps.push({
+            tokenIn: tokenPath[i],
+            tokenOut: tokenPath[i + 1],
+            dexType: BlockchainService.DexType.UNISWAP_V3,
+            fee: 3000
+          });
+        }
+        tx = await this.flashLoanContract.initiateArbitrageFromBackend(
+          flashLoanToken,
+          flashLoanAmount,
+          steps
+        );
+      }
+
+      console.log('⏳ Aguardando confirmação da transação...');
+      const receipt = await tx.wait();
+
+      console.log('✓ Arbitragem dinâmica iniciada com sucesso!');
+      console.log('📋 Hash da transação:', receipt.transactionHash);
+      console.log('💰 Gás usado:', receipt.gasUsed.toString());
+
+      return {
+        success: true,
+        txHash: receipt.transactionHash,
+        gasUsed: receipt.gasUsed.toString(),
+        receipt
+      };
+    } catch (error) {
+      console.error('❌ Erro ao iniciar arbitragem dinâmica:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
   // Codificar dados da arbitragem para o flash loan
   encodeArbitrageData(flashLoanToken, flashLoanAmount, arbitrageSteps) {
     // A função initiateArbitrageFromBackend agora recebe os dados diretamente,
