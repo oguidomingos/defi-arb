@@ -43,6 +43,17 @@ interface IFlashLoanReceiver {
     ) external returns (bool);
 }
 
+// Interface para o callback do flash loan simples
+interface IFlashLoanSimpleReceiver {
+    function executeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        address initiator,
+        bytes calldata params
+    ) external returns (bool);
+}
+
 // Interface para WMATIC
 interface IWMATIC {
     function withdraw(uint256 wad) external;
@@ -55,7 +66,7 @@ interface IWMATIC {
  * @dev Contrato para execução de arbitragem usando flash loans
  * Baseado no repositório poly-flash
  */
-contract FlashLoanArbitrage is ReentrancyGuard, Ownable, IFlashLoanReceiver {
+contract FlashLoanArbitrage is ReentrancyGuard, Ownable, IFlashLoanReceiver, IFlashLoanSimpleReceiver {
     
     // Aave V3 Pool
     address public constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
@@ -208,7 +219,7 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable, IFlashLoanReceiver {
         uint256[] calldata premiums,
         address initiator,
         bytes calldata params
-    ) external override returns (bool) {
+    ) external override(IFlashLoanReceiver) returns (bool) {
         require(msg.sender == AAVE_POOL, "Caller must be Aave Pool");
         require(initiator == address(this), "Invalid initiator");
         
@@ -230,7 +241,36 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable, IFlashLoanReceiver {
         
         // Aprovar reembolso para Aave
         IERC20(assets[0]).approve(AAVE_POOL, amounts[0] + premiums[0]);
-        
+
+        return true;
+    }
+
+    // Callback para flashLoanSimple
+    function executeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        address initiator,
+        bytes calldata params
+    ) external override(IFlashLoanSimpleReceiver) returns (bool) {
+        require(msg.sender == AAVE_POOL, "Caller must be Aave Pool");
+        require(initiator == address(this), "Invalid initiator");
+
+        ArbitrageData memory arbitrageData = abi.decode(params, (ArbitrageData));
+
+        uint256 profit = _executeArbitrage(arbitrageData, asset, amount, premium);
+
+        profits[arbitrageData.flashLoanToken] += profit;
+
+        emit ArbitrageExecuted(
+            arbitrageData.flashLoanToken,
+            arbitrageData.steps[arbitrageData.steps.length - 1].tokenOut,
+            profit,
+            "Dynamic Arbitrage Route"
+        );
+
+        IERC20(asset).approve(AAVE_POOL, amount + premium);
+
         return true;
     }
     
