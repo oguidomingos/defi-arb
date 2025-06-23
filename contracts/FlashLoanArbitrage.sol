@@ -43,6 +43,13 @@ interface IFlashLoanReceiver {
     ) external returns (bool);
 }
 
+// Interface para WMATIC
+interface IWMATIC {
+    function withdraw(uint256 wad) external;
+    function balanceOf(address account) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+}
+
 /**
  * @title FlashLoanArbitrage
  * @dev Contrato para execução de arbitragem usando flash loans
@@ -368,19 +375,31 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable, IFlashLoanReceiver {
     ) external {
         require(_steps.length > 0, "Arbitrage route must have at least one step");
         require(_flashLoanAmount > 0, "Flash loan amount must be greater than zero");
-        
-        // Verificar se o contrato tem saldo suficiente para taxas
         require(address(this).balance > 0.1 ether, "Insufficient MATIC for gas");
 
-        // Codificar os dados da arbitragem
+        // Aprovar o pool Aave para gastar o token do flash loan
+        _approveIfNeeded(_flashLoanToken, AAVE_POOL, _flashLoanAmount);
+
+        // Aprovar todos os tokens dos steps para todos os routers necessários
+        for (uint256 i = 0; i < _steps.length; i++) {
+            ArbitrageStep calldata step = _steps[i];
+            if (step.dexType == DexType.UNISWAP_V2 || step.dexType == DexType.SUSHISWAP || step.dexType == DexType.QUICKSWAP) {
+                address router;
+                if (step.dexType == DexType.UNISWAP_V2) router = UNISWAP_V2_ROUTER;
+                else if (step.dexType == DexType.SUSHISWAP) router = SUSHISWAP_ROUTER;
+                else if (step.dexType == DexType.QUICKSWAP) router = QUICKSWAP_ROUTER;
+                else revert("Invalid DEX type for V2 swap");
+                _approveIfNeeded(step.tokenIn, router, _flashLoanAmount);
+            } else if (step.dexType == DexType.UNISWAP_V3) {
+                _approveIfNeeded(step.tokenIn, UNISWAP_V3_ROUTER, _flashLoanAmount);
+            }
+        }
+
         bytes memory data = abi.encode(ArbitrageData({
             flashLoanToken: _flashLoanToken,
             flashLoanAmount: _flashLoanAmount,
             steps: _steps
         }));
-
-        // Aprovar o pool Aave para gastar o token
-        IERC20(_flashLoanToken).approve(AAVE_POOL, _flashLoanAmount);
 
         try this.flashLoanSimple(address(this), _flashLoanToken, _flashLoanAmount, data, 0) {
             // Sucesso
@@ -391,11 +410,18 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable, IFlashLoanReceiver {
         }
     }
 
+    function _approveIfNeeded(address token, address spender, uint256 amount) internal {
+        uint256 allowance = IERC20(token).allowance(address(this), spender);
+        if (allowance < amount) {
+            IERC20(token).approve(spender, type(uint256).max);
+        }
+    }
+
     function swapUniswapV2(address router, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin) internal returns (uint256) {
+        _approveIfNeeded(tokenIn, router, amountIn);
         address[] memory path = new address[](2);
         path[0] = tokenIn;
         path[1] = tokenOut;
-        IERC20(tokenIn).safeApprove(router, amountIn);
         uint[] memory amounts = IUniswapV2Router(router).swapExactTokensForTokens(
             amountIn,
             amountOutMin,
@@ -407,7 +433,7 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable, IFlashLoanReceiver {
     }
 
     function swapUniswapV3(address router, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin, uint24 fee) internal returns (uint256) {
-        IERC20(tokenIn).safeApprove(router, amountIn);
+        _approveIfNeeded(tokenIn, router, amountIn);
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
             tokenIn: tokenIn,
             tokenOut: tokenOut,
@@ -419,5 +445,36 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable, IFlashLoanReceiver {
             sqrtPriceLimitX96: 0
         });
         return ISwapRouter(router).exactInputSingle(params);
+    }
+
+    // Função para trocar POL por MATIC nativo via Uniswap V3
+    function swapPOLForMatic(uint256 amountIn, uint256 amountOutMin, uint24 fee) external onlyOwner {
+        address router = UNISWAP_V3_ROUTER;
+        address polToken = 0x455e53CBB86018Ac2B8092FdCd39d8444aFFC3F6;
+        address wmaticToken = WMATIC;
+
+        // Aprovar router para gastar POL
+        IERC20(polToken).approve(router, amountIn);
+
+        // Montar parâmetros para swap POL -> WMATIC
+        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
+            tokenIn: polToken,
+            tokenOut: wmaticToken,
+            fee: fee,
+            recipient: address(this),
+            deadline: block.timestamp + 600,
+            amountIn: amountIn,
+            amountOutMinimum: amountOutMin,
+            sqrtPriceLimitX96: 0
+        });
+
+        // Executar swap
+        ISwapRouter(router).exactInputSingle(params);
+
+        // Desenrolar WMATIC para MATIC nativo
+        uint256 wmaticBalance = IWMATIC(wmaticToken).balanceOf(address(this));
+        require(wmaticBalance > 0, "No WMATIC to unwrap");
+        IWMATIC(wmaticToken).withdraw(wmaticBalance);
+        // Agora o contrato tem saldo de MATIC nativo!
     }
 }

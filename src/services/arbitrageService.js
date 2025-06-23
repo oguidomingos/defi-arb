@@ -100,7 +100,7 @@ class ArbitrageService {
   }
 
   // Detectar arbitragem triangular usando algoritmo Bellman-Ford
-  detectTriangularArbitrage(tokenPrices) {
+  async detectTriangularArbitrage(tokenPrices) {
     console.log('🔍 Iniciando detecção de arbitragem triangular avançada...');
     
     // Debug: mostrar dados recebidos
@@ -116,7 +116,7 @@ class ArbitrageService {
       }
     }
     
-    const result = this.triangularService.detectOpportunities(tokenPrices);
+    const result = await this.triangularService.detectOpportunities(tokenPrices);
     
     if (!result || !result.opportunities) {
       console.warn('⚠️ Serviço triangular retornou resultado inválido:', result);
@@ -260,7 +260,7 @@ class ArbitrageService {
   }
 
   // Analisar todas as oportunidades
-  analyzeOpportunities(tokenPrices, gasPrice) {
+  async analyzeOpportunities(tokenPrices, gasPrice) {
     // 🔍 DEBUG: Log detalhado do que está sendo recebido ANTES do processamento
     console.log('🔍 [DEBUG] ArbitrageService.analyzeOpportunities recebeu:');
     console.log(`   - Tipo: ${typeof tokenPrices}`);
@@ -277,11 +277,11 @@ class ArbitrageService {
     }
     
     const directOpportunities = this.detectDirectArbitrage(actualTokenPrices);
-    const triangularOpportunities = this.detectTriangularArbitrage(actualTokenPrices);
+    const triangularOpportunitiesResult = await this.detectTriangularArbitrage(actualTokenPrices);
     
     const allOpportunities = [
       ...directOpportunities,
-      ...triangularOpportunities
+      ...(triangularOpportunitiesResult.opportunities || [])
     ];
 
     // Validar todas as oportunidades
@@ -319,7 +319,7 @@ class ArbitrageService {
 
     const result = {
       direct: directOpportunities.length,
-      triangular: triangularOpportunities.length,
+      triangular: triangularOpportunitiesResult.opportunities?.length || 0, // Acesso seguro
       total: allOpportunities.length,
       profitable: profitableOpportunities.length,
       rejected: rejectedOpportunities.length,

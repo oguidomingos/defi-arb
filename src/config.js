@@ -1,4 +1,6 @@
 require('dotenv').config();
+console.log('DEBUG: process.env.FLASH_LOAN_CONTRACT_ADDRESS =', process.env.FLASH_LOAN_CONTRACT_ADDRESS);
+console.log('DEBUG: process.env.PRIVATE_KEY =', process.env.PRIVATE_KEY ? '*****' : 'undefined');
 
 const { ethers } = require('ethers');
 
@@ -186,7 +188,7 @@ const config = {
     timeoutMs: 30000,                // 30s timeout para execução
     enableDetailedLogging: true,     // Logs detalhados para debug
     allowSingleDexArbitrage: true,   // Permitir arbitragem intra-DEX (uma única DEX)
-    autoExecute: false,              // Execução automática de oportunidades
+    autoExecute: true,              // Execução automática de oportunidades
     maxFlashLoanAmount: "1000",      // 1000 tokens (valor padrão)
     maxRouteDepth: 4,                // Profundidade máxima de rotas
     allowedDexs: [                   // DEXs permitidas para arbitragem

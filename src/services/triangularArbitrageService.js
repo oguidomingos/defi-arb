@@ -366,6 +366,9 @@ class TriangularArbitrageService {
   async detectOpportunities(tokenPrices, options = {}) {
     const { maxDepth = 3, baseTokens = ['USDC', 'USDT', 'DAI', 'WETH'] } = options;
     
+    // Logar valor de autoExecute para debug
+    console.log(`[DEBUG] config.arbitrageConfig.autoExecute =`, config.arbitrageConfig?.autoExecute);
+    
     console.log(`🔍 Detectando oportunidades de arbitragem (profundidade máxima: ${maxDepth})...`);
     
     // Construir grafo otimizado
@@ -378,6 +381,18 @@ class TriangularArbitrageService {
     console.log('   - Tipo:', typeof tokenPrices);
     console.log('   - Chaves:', Object.keys(tokenPrices || {}));
     console.log('   - Exemplo de par:', Object.keys(tokenPrices)[0], '=>', tokenPrices[Object.keys(tokenPrices)[0]]);
+    
+    // Lista de tokens suportados para flash loan na Aave
+    const supportedFlashLoanTokens = [
+      config.tokens.WMATIC.address.toLowerCase(),
+      config.tokens.USDC.address.toLowerCase(),
+      config.tokens.WETH.address.toLowerCase(),
+      config.tokens.USDT.address.toLowerCase(),
+      config.tokens.DAI.address.toLowerCase(),
+      config.tokens.AAVE.address.toLowerCase(),
+      config.tokens.LINK.address.toLowerCase(),
+      config.tokens.WBTC.address.toLowerCase()
+    ];
     
     // Buscar oportunidades para cada token base
     for (const baseToken of baseTokens) {
@@ -399,6 +414,13 @@ class TriangularArbitrageService {
     
           // Execução automática se configurado
           if (config.arbitrageConfig?.autoExecute && opportunity.profitPercent >= config.arbitrageConfig.minProfitPercent) {
+            // Checagem extra de inicialização
+            if (!this.blockchainService.wallet || !this.blockchainService.flashLoanContract) {
+              console.error('[FATAL] Tentativa de execução automática sem wallet ou contrato inicializado!');
+              console.error('wallet:', this.blockchainService.wallet);
+              console.error('flashLoanContract:', this.blockchainService.flashLoanContract);
+              continue;
+            }
             try {
               const result = await this.executeDynamicArbitrage(opportunity);
               if (result.success) {
@@ -453,10 +475,22 @@ class TriangularArbitrageService {
                 console.log(`⚡ Oportunidade de arbitragem detectada: ${tokenA} -> ${tokenB} -> ${tokenC} com lucro de ${analysis.profitPercent.toFixed(4)}%`);
 
                 // 3. Extrair parâmetros para initiateArbitrageFromBackend
-                const flashLoanToken = triangle[0].from; // O token inicial do flash loan
-                // TODO: Implementar lógica mais sofisticada para calcular a quantidade ideal do flash loan.
-                // Por enquanto, um valor fixo ou baseado em uma estimativa simples.
-                const flashLoanAmount = ethers.utils.parseUnits("100", 6); // Exemplo: 100 USDC, assumindo 6 decimais
+                const config = require('../config');
+                const flashLoanTokenSymbol = triangle[0].from;
+                const flashLoanTokenAddress = config.tokens[flashLoanTokenSymbol]?.address;
+                const tokenDecimals = config.tokens[flashLoanTokenSymbol]?.decimals || 18;
+                const defaultAmounts = {
+                  USDC: "100",
+                  USDT: "100",
+                  DAI: "100",
+                  WMATIC: "1",
+                  WETH: "0.05",
+                  AAVE: "0.1",
+                  LINK: "1",
+                  WBTC: "0.001"
+                };
+                const amountStr = defaultAmounts[flashLoanTokenSymbol] || "1";
+                const flashLoanAmount = ethers.utils.parseUnits(amountStr, tokenDecimals);
 
                 // Construir o array de ArbitrageStep
                 const arbitrageSteps = triangle.map(edge => {
@@ -481,7 +515,6 @@ class TriangularArbitrageService {
                   }
 
                   // Obter endereços dos tokens do config
-                  const config = require('../config');
                   const tokenInAddress = config.tokens[edge.from]?.address;
                   const tokenOutAddress = config.tokens[edge.to]?.address;
 
@@ -500,12 +533,24 @@ class TriangularArbitrageService {
                   };
                 });
 
-                console.log(`🚀 Iniciando arbitragem com: FlashLoanToken=${flashLoanToken}, FlashLoanAmount=${ethers.utils.formatUnits(flashLoanAmount, 6)}, Passos=${JSON.stringify(arbitrageSteps)}`);
+                // BLOQUEIO ABSOLUTO DE EXECUÇÃO SE autoExecute === false
+                if (!config.arbitrageConfig?.autoExecute) {
+                  console.log('[INFO] Execução automática de arbitragem está DESATIVADA (autoExecute=false). Nenhuma transação será enviada.');
+                  continue;
+                }
+
+                // Antes de montar a rota, filtre:
+                if (!flashLoanTokenAddress || !supportedFlashLoanTokens.includes(flashLoanTokenAddress.toLowerCase())) {
+                  console.log(`[REJEITADO] Token do flash loan não suportado pela Aave: ${flashLoanTokenSymbol} (${flashLoanTokenAddress})`);
+                  continue;
+                }
+
+                console.log(`🚀 Iniciando arbitragem com: FlashLoanToken=${flashLoanTokenAddress}, FlashLoanAmount=${ethers.utils.formatUnits(flashLoanAmount, tokenDecimals)}, Passos=${JSON.stringify(arbitrageSteps)}`);
 
                 try {
                   // Chamar a função initiateArbitrageFromBackend do BlockchainService
                   const txResult = await this.blockchainService.initiateArbitrageFromBackend(
-                    flashLoanToken,
+                    flashLoanTokenAddress,
                     flashLoanAmount,
                     arbitrageSteps
                   );
@@ -519,6 +564,7 @@ class TriangularArbitrageService {
                 }
 
               } else {
+                console.log(`[REJEITADO] Rota ignorada: ${[tokenA, tokenB, tokenC].join(' -> ')} | Motivo: ${analysis.rejectionReason}`);
                 rejectedOpportunities.push({
                   tokens: [tokenA, tokenB, tokenC],
                   ...analysis,

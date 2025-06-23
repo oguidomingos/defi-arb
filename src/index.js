@@ -17,11 +17,16 @@ class ArbitrageBot {
   }
 
   async initialize() {
+    console.log('[DEBUG] ArbitrageBot.initialize chamado');
     console.log('🚀 Inicializando Sistema de Arbitragem na Polygon...\n');
     
     try {
-      // Garantir que o provider esteja inicializado antes de qualquer outra operação
+      // Inicializar provider e wallet
+      console.log('[DEBUG] initializeProvider chamado');
       await this.blockchainService.initializeProvider();
+      
+      // Inicializar contrato de flash loan APÓS o provider e a wallet estarem prontos
+      await this.blockchainService.initializeFlashLoanContract();
 
       // Verificar conectividade com a rede
       const networkInfo = await this.blockchainService.getNetworkInfo();
@@ -41,10 +46,10 @@ class ArbitrageBot {
         console.log('   USDC:', balances.usdc, '\n');
       }
 
-      // Inicializar contrato de flash loan e aguardar
-      await this.blockchainService.initializeFlashLoanContract();
-
-      console.log('✅ Sistema inicializado com sucesso!\n');
+      console.log('✅ Sistema inicializado com sucesso!');
+      console.log('FlashLoan addr:', this.blockchainService.flashLoanContract?.address || 'Não inicializado');
+      console.log('Deployer  addr:', this.blockchainService.wallet?.address || 'Não inicializado');
+      console.log('\n');
       return true;
       
     } catch (error) {
@@ -90,7 +95,7 @@ class ArbitrageBot {
         }
       }
       
-      const analysis = this.arbitrageService.analyzeOpportunities(
+      const analysis = await this.arbitrageService.analyzeOpportunities(
         marketData.tokenPrices,
         gasPrice
       );
@@ -277,6 +282,7 @@ class ArbitrageBot {
   // Método para execução única (para testes)
   async runOnce() {
     console.log('🔄 Executando ciclo único...\n');
+    await this.initialize(); // Inicializa provider, wallet e contrato
     await this.runCycle();
     console.log('✅ Ciclo único concluído');
   }

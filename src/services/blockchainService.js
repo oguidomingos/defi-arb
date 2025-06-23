@@ -3,16 +3,17 @@ const config = require('../config');
 
 class BlockchainService {
   constructor() {
+    console.log('[DEBUG] BlockchainService constructor chamado');
     this.provider = null;
     this.wallet = null;
     this.flashLoanContract = null;
-    this.initializeProvider().catch(error => {
-      console.error('Erro na inicialização assíncrona:', error);
-    });
+    // A inicialização do provider e do contrato será feita explicitamente pelo ArbitrageBot
   }
 
   async initializeProvider() {
+    console.log('[DEBUG] [INÍCIO] BlockchainService.initializeProvider chamado');
     try {
+      console.log('[DEBUG] config.privateKey =', config.privateKey ? '*****' : 'undefined');
       // Lista de RPC endpoints para failover
       const rpcEndpoints = [
         config.alchemyPolygonRpcUrl,
@@ -65,14 +66,10 @@ class BlockchainService {
         console.log('⚠️  Chave privada não configurada - modo somente leitura');
       }
       
-    } catch (error) {
-      console.error('❌ Erro ao inicializar provider:', error);
-      // Usar provider padrão como fallback
-      this.provider = new ethers.providers.JsonRpcProvider('https://polygon-rpc.com', {
-        name: 'polygon',
-        chainId: 137
-      });
-      console.log('🔄 Usando provider padrão como fallback');
+      console.log('[DEBUG] [FIM] BlockchainService.initializeProvider finalizado');
+    } catch (err) {
+      console.error('[FATAL] Erro em BlockchainService.initializeProvider:', err);
+      throw err;
     }
   }
 
@@ -627,22 +624,37 @@ class BlockchainService {
 
   // Inicializar contrato de flash loan
   initializeFlashLoanContract() {
+    console.log('🔍 Tentando inicializar contrato de flash loan...');
+    console.log('   FLASH_LOAN_CONTRACT_ADDRESS do config:', config.flashLoanContractAddress);
+    
     if (!config.flashLoanContractAddress) {
-      console.log('⚠️  Endereço do contrato de flash loan não configurado');
+      console.log('⚠️  Endereço do contrato de flash loan não configurado no config.js');
       return false;
     }
 
     try {
+      console.log('   Tentando criar ethers.Contract...');
+      console.log('   Endereço do contrato:', config.flashLoanContractAddress);
+      console.log('   Wallet (signer) presente:', !!this.wallet);
+      console.log('   Provider presente:', !!this.provider);
+      
+      const signerOrProvider = this.wallet || this.provider;
+      if (!signerOrProvider) {
+        console.error('   Erro: Nem wallet nem provider disponíveis para inicializar o contrato.');
+        return false;
+      }
+
       this.flashLoanContract = new ethers.Contract(
         config.flashLoanContractAddress,
         this.getFlashLoanABI(),
-        this.wallet || this.provider
+        signerOrProvider
       );
       
-      console.log('✓ Contrato de flash loan inicializado');
+      console.log('✓ Contrato de flash loan inicializado com sucesso!');
+      console.log('   Endereço do contrato inicializado:', this.flashLoanContract.address);
       return true;
     } catch (error) {
-      console.error('Erro ao inicializar contrato de flash loan:', error);
+      console.error('❌ Erro ao inicializar contrato de flash loan:', error);
       return false;
     }
   }
@@ -727,11 +739,22 @@ class BlockchainService {
    */
   async initiateArbitrageFromBackend(flashLoanToken, flashLoanAmount, arbitrageSteps) {
     if (!this.flashLoanContract || !this.wallet) {
+      console.error('[DEBUG] initiateArbitrageFromBackend: wallet =', this.wallet);
+      console.error('[DEBUG] initiateArbitrageFromBackend: flashLoanContract =', this.flashLoanContract);
       throw new Error('Contrato de flash loan ou wallet não inicializado');
     }
 
     try {
       console.log(`🚀 Iniciando arbitragem do backend: Token=${flashLoanToken}, Quantidade=${ethers.utils.formatEther(flashLoanAmount)}`);
+      
+      // Logs detalhados de todos os endereços envolvidos
+      console.log('[DEBUG] [ARBITRAGEM] Endereço do contrato:', this.flashLoanContract?.address);
+      console.log('[DEBUG] [ARBITRAGEM] Endereço da wallet:', this.wallet?.address);
+      console.log('[DEBUG] [ARBITRAGEM] FlashLoanToken:', flashLoanToken);
+      console.log('[DEBUG] [ARBITRAGEM] Passos de arbitragem:');
+      arbitrageSteps.forEach((step, idx) => {
+        console.log(`  Passo ${idx + 1}: tokenIn=${step.tokenIn}, tokenOut=${step.tokenOut}, dexType=${step.dexType}, fee=${step.fee}`);
+      });
       
       const tx = await this.flashLoanContract.initiateArbitrageFromBackend(
         flashLoanToken,
