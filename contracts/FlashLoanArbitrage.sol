@@ -11,12 +11,44 @@ import "./uniswap/v3/ISwapRouter.sol";
 
 using SafeERC20 for IERC20;
 
+// Interface do Aave V3 Pool
+interface IPool {
+    function flashLoanSimple(
+        address receiverAddress,
+        address asset,
+        uint256 amount,
+        bytes calldata data,
+        uint16 referralCode
+    ) external;
+    
+    function flashLoan(
+        address receiverAddress,
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        uint256[] calldata interestRateModes,
+        address onBehalfOf,
+        bytes calldata data,
+        uint16 referralCode
+    ) external;
+}
+
+// Interface para o callback do flash loan
+interface IFlashLoanReceiver {
+    function executeOperation(
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        uint256[] calldata premiums,
+        address initiator,
+        bytes calldata params
+    ) external returns (bool);
+}
+
 /**
  * @title FlashLoanArbitrage
  * @dev Contrato para execução de arbitragem usando flash loans
  * Baseado no repositório poly-flash
  */
-contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
+contract FlashLoanArbitrage is ReentrancyGuard, Ownable, IFlashLoanReceiver {
     
     // Aave V3 Pool
     address public constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
@@ -103,19 +135,14 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         require(asset != address(0), "Invalid asset");
         require(amount > 0, "Invalid amount");
         
-        // Chamar Aave Pool para flash loan
-        (bool success, ) = AAVE_POOL.call(
-            abi.encodeWithSignature(
-                "flashLoanSimple(address,address,uint256,bytes,uint16)",
-                receiver,
-                asset,
-                amount,
-                data,
-                referralCode
-            )
+        // Chamar Aave Pool para flash loan usando interface
+        IPool(AAVE_POOL).flashLoanSimple(
+            receiver,
+            asset,
+            amount,
+            data,
+            referralCode
         );
-        
-        require(success, "Flash loan failed");
         
         emit FlashLoanExecuted(asset, amount, 0, msg.sender);
     }
@@ -136,28 +163,23 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         uint256[] calldata amounts,
         uint256[] calldata interestRateModes,
         address onBehalfOf,
-        bytes memory data, // Alterado de calldata para memory
+        bytes memory data,
         uint16 referralCode
     ) public {
         require(receiver != address(0), "Invalid receiver");
         require(assets.length == amounts.length, "Arrays length mismatch");
         require(assets.length == interestRateModes.length, "Arrays length mismatch");
         
-        // Chamar Aave Pool para flash loan múltiplo
-        (bool success, ) = AAVE_POOL.call(
-            abi.encodeWithSignature(
-                "flashLoan(address,address[],uint256[],uint256[],address,bytes,uint16)",
-                receiver,
-                assets,
-                amounts,
-                interestRateModes,
-                onBehalfOf,
-                data,
-                referralCode
-            )
+        // Chamar Aave Pool para flash loan múltiplo usando interface
+        IPool(AAVE_POOL).flashLoan(
+            receiver,
+            assets,
+            amounts,
+            interestRateModes,
+            onBehalfOf,
+            data,
+            referralCode
         );
-        
-        require(success, "Flash loan failed");
         
         for (uint256 i = 0; i < assets.length; i++) {
             emit FlashLoanExecuted(assets[i], amounts[i], 0, msg.sender);
@@ -179,7 +201,7 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         uint256[] calldata premiums,
         address initiator,
         bytes calldata params
-    ) external returns (bool) {
+    ) external override returns (bool) {
         require(msg.sender == AAVE_POOL, "Caller must be Aave Pool");
         require(initiator == address(this), "Invalid initiator");
         

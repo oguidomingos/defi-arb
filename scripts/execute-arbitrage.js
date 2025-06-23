@@ -10,6 +10,7 @@ async function main() {
   console.log("Saldo atual:", ethers.utils.formatEther(await owner.getBalance()), "MATIC");
 
   // Configuração da rota de arbitragem (WMATIC -> USDC -> WETH -> WMATIC)
+  // DexType enum: UNISWAP_V2 = 0, UNISWAP_V3 = 1, SUSHISWAP = 2, QUICKSWAP = 3
   const steps = [
     {
       tokenIn: process.env.WMATIC_ADDRESS,
@@ -26,7 +27,7 @@ async function main() {
     {
       tokenIn: process.env.WETH_ADDRESS,
       tokenOut: process.env.WMATIC_ADDRESS,
-      dexType: 0, // 0 = QuickSwap
+      dexType: 3, // 3 = QuickSwap (corrigido de 0 para 3)
       fee: 0
     }
   ];
