@@ -9,8 +9,9 @@
 **Solução Aplicada**:
 - ✅ Adicionada interface `IPool` para o Aave V3
 - ✅ Adicionada interface `IFlashLoanReceiver` para o callback
-- ✅ Contrato agora herda de `IFlashLoanReceiver`
-- ✅ Função `executeOperation` agora tem `override`
+- ✅ Adicionada interface `IFlashLoanSimpleReceiver` para flash loans simples
+- ✅ Contrato agora herda `IFlashLoanReceiver` e `IFlashLoanSimpleReceiver`
+- ✅ Funções `executeOperation` agora têm `override`
 
 ### 2. **Problema Secundário: Valores Incorretos dos Tipos de DEX**
 
