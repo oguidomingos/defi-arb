@@ -179,7 +179,48 @@ contract FlashLoanArbitrage is ReentrancyGuard, Ownable {
         
         // Aprovar reembolso para Aave
         IERC20(assets[0]).approve(AAVE_POOL, amounts[0] + premiums[0]);
-        
+
+        return true;
+    }
+
+    /**
+     * @dev Callback executado pelo Aave após flash loan simples
+     * @param asset Token emprestado
+     * @param amount Quantidade emprestada
+     * @param premium Prêmio do empréstimo
+     * @param initiator Iniciador do flash loan
+     * @param params Parâmetros adicionais
+     * @return Retorna true se bem-sucedido
+     */
+    function executeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        address initiator,
+        bytes calldata params
+    ) external returns (bool) {
+        require(msg.sender == AAVE_POOL, "Caller must be Aave Pool");
+        require(initiator == address(this), "Invalid initiator");
+
+        // Decodificar dados de arbitragem
+        ArbitrageData memory arbitrageData = abi.decode(params, (ArbitrageData));
+
+        // Executar arbitragem
+        uint256 profit = _executeArbitrage(arbitrageData);
+
+        // Adicionar lucro ao mapeamento
+        profits[arbitrageData.tokenA] += profit;
+
+        emit ArbitrageExecuted(
+            arbitrageData.tokenA,
+            arbitrageData.tokenB,
+            profit,
+            arbitrageData.route
+        );
+
+        // Aprovar reembolso para Aave
+        IERC20(asset).approve(AAVE_POOL, amount + premium);
+
         return true;
     }
     
