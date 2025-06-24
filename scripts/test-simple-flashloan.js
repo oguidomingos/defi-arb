@@ -4,7 +4,7 @@ require("dotenv").config();
 async function main() {
   const [owner] = await ethers.getSigners();
   const FlashLoanArbitrage = await ethers.getContractFactory("FlashLoanArbitrage");
-  const flashLoanArbitrage = FlashLoanArbitrage.attach(process.env.FLASHLOAN_ARBITRAGE_CONTRACT_ADDRESS);
+  const flashLoanArbitrage = FlashLoanArbitrage.attach(process.env.FLASH_LOAN_CONTRACT_ADDRESS);
 
   console.log("Testando flash loan simples com conta:", owner.address);
   console.log("Saldo atual:", ethers.utils.formatEther(await owner.getBalance()), "MATIC");

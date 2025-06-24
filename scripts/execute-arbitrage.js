@@ -4,7 +4,7 @@ require("dotenv").config();
 async function main() {
   const [owner] = await ethers.getSigners();
   const FlashLoanArbitrage = await ethers.getContractFactory("FlashLoanArbitrage");
-  const flashLoanArbitrage = FlashLoanArbitrage.attach(process.env.FLASHLOAN_ARBITRAGE_CONTRACT_ADDRESS);
+  const flashLoanArbitrage = FlashLoanArbitrage.attach(process.env.FLASH_LOAN_CONTRACT_ADDRESS);
 
   console.log("Executando arbitragem com conta:", owner.address);
   console.log("Saldo atual:", ethers.utils.formatEther(await owner.getBalance()), "MATIC");
@@ -36,7 +36,7 @@ async function main() {
 
   // Enviar 0.2 MATIC para o contrato cobrir taxas
   await owner.sendTransaction({
-    to: process.env.FLASHLOAN_ARBITRAGE_CONTRACT_ADDRESS,
+    to: process.env.FLASH_LOAN_CONTRACT_ADDRESS,
     value: ethers.utils.parseEther("0.2")
   });
 

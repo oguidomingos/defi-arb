@@ -66,7 +66,7 @@ async function main() {
   
   try {
     const FlashLoanArbitrage = await ethers.getContractFactory("FlashLoanArbitrage");
-    const flashLoanArbitrage = FlashLoanArbitrage.attach(process.env.FLASHLOAN_ARBITRAGE_CONTRACT_ADDRESS);
+    const flashLoanArbitrage = FlashLoanArbitrage.attach(process.env.FLASH_LOAN_CONTRACT_ADDRESS);
     
     // Verificar se o contrato existe
     const code = await ethers.provider.getCode(flashLoanArbitrage.address);
