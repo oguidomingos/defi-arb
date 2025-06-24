@@ -163,7 +163,7 @@ class BlockchainService {
       console.log(`🚀 Executando flash loan: ${ethers.utils.formatEther(amount)} ${asset}`);
       
       const tx = await this.flashLoanContract.flashLoanSimple(
-        this.wallet.address, // receiver
+        this.flashLoanContract.address, // contract address acts as receiver
         asset, // asset address
         amount, // amount
         data, // data
