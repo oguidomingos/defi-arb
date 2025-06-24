@@ -44,6 +44,7 @@ nano .env
 # Polygon RPC (escolha um)
 INFURA_PROJECT_ID=seu_infura_project_id
 ALCHEMY_POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/sua_alchemy_key
+ALCHEMY_POLYGON_MUMBAI_RPC_URL=https://polygon-mumbai.g.alchemy.com/v2/sua_alchemy_key # Para deploys na Polygon Mumbai
 
 # Chave privada da wallet (para execução)
 PRIVATE_KEY=sua_chave_privada_sem_0x
@@ -83,6 +84,7 @@ CHECK_INTERVAL=5000              # 5 segundos
 5. Adicione ao `.env`:
    ```env
    ALCHEMY_POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/sua_key
+   ALCHEMY_POLYGON_MUMBAI_RPC_URL=https://polygon-mumbai.g.alchemy.com/v2/sua_key # Para deploys na Polygon Mumbai
    ```
 
 #### The Graph:
